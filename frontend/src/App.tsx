@@ -27,7 +27,7 @@ const navigation = [
 ];
 const usd = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 const shortAddress = (value: string) => value.length > 22 ? value.slice(0, 14) + "…" + value.slice(-5) : value;
-const fromApiAgent = (a: ApiAgent, index = 0): Agent => ({ id: a.id, name: a.name, initials: a.name.split(/\\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(), identity: a.did, owner: a.owner, network: a.network, status: a.status === "active" ? "Active" : a.status === "paused" ? "Paused" : "Revoked", spent: 0, budget: 0, transactions: 0, color: ["violet", "blue", "orange", "green"][index % 4] });
+const fromApiAgent = (a: ApiAgent, index = 0): Agent => ({ id: a.id, name: a.name, initials: a.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(), identity: a.did, owner: a.owner, network: a.network, status: a.status === "active" ? "Active" : a.status === "paused" ? "Paused" : "Revoked", spent: 0, budget: 0, transactions: 0, color: ["violet", "blue", "orange", "green"][index % 4] });
 const fromApiPayment = (p: ApiPayment, agents: Agent[]): Payment => ({ id: p.id, agent: agents.find(a => a.id === p.agent_id)?.name ?? p.agent_id, merchant: p.merchant, purpose: p.purpose, amount: p.amount_cents / 100, status: p.status === "settled" ? "Settled" : p.status === "pending" ? "Pending" : "Rejected", time: new Date(p.created_at).toLocaleString(), hash: p.tx_hash ?? (p.rejection_reason ? p.rejection_reason : "No settlement (demo)") });
 
 export default function App() {
