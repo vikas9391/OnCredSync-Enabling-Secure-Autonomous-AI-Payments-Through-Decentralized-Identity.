@@ -1,13 +1,13 @@
 use axum::{
     extract::{Path, State},
     http::{header, HeaderValue, Method, StatusCode},
-    routing::{get, patch, post},
+    routing::{get, patch},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use sqlx::{postgres::PgPoolOptions, FromRow, PgPool};
+use serde_json::{json, Value};
+use sqlx::{mysql::MySqlPoolOptions, FromRow, MySqlPool};
 use std::{env, net::SocketAddr};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use tracing_subscriber::EnvFilter;
@@ -15,12 +15,12 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct AppState {
-    db: PgPool,
+    db: MySqlPool,
 }
 
 #[derive(Debug, Serialize, FromRow)]
 struct Agent {
-    id: Uuid,
+    id: String,
     name: String,
     owner: String,
     did: String,
@@ -33,12 +33,12 @@ struct Agent {
 
 #[derive(Debug, Serialize, FromRow)]
 struct Policy {
-    id: Uuid,
-    agent_id: Uuid,
+    id: String,
+    agent_id: String,
     name: String,
     transaction_limit_cents: i64,
     daily_limit_cents: i64,
-    approved_merchants: Vec<String>,
+    approved_merchants: Value,
     valid_until: Option<DateTime<Utc>>,
     revoked: bool,
     created_at: DateTime<Utc>,
@@ -47,8 +47,8 @@ struct Policy {
 
 #[derive(Debug, Serialize, FromRow)]
 struct Payment {
-    id: Uuid,
-    agent_id: Uuid,
+    id: String,
+    agent_id: String,
     merchant: String,
     purpose: String,
     amount_cents: i64,
@@ -83,7 +83,7 @@ struct CreatePolicy {
 
 #[derive(Deserialize)]
 struct CreatePayment {
-    agent_id: Uuid,
+    agent_id: String,
     merchant: String,
     purpose: Option<String>,
     amount_cents: i64,
@@ -105,8 +105,24 @@ fn internal_error<E: std::fmt::Display>(error: E) -> (StatusCode, Json<ApiError>
     api_error(StatusCode::INTERNAL_SERVER_ERROR, "An internal server error occurred")
 }
 
-async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok", "service": "oncredsync-api", "mode": "database-backed-demo" }))
+fn valid_uuid(value: &str) -> bool {
+    Uuid::parse_str(value).is_ok()
+}
+
+fn merchant_list(value: &Value) -> Vec<String> {
+    value.as_array()
+        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        .unwrap_or_default()
+}
+
+async fn health(State(state): State<AppState>) -> Json<Value> {
+    let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
+    Json(json!({
+        "status": if db_ok { "ok" } else { "degraded" },
+        "service": "oncredsync-api",
+        "database": if db_ok { "connected" } else { "unavailable" },
+        "mode": "database-backed-demo"
+    }))
 }
 
 async fn list_agents(State(state): State<AppState>) -> ApiResult<Vec<Agent>> {
@@ -125,59 +141,90 @@ async fn create_agent(
     if name.is_empty() || name.len() > 100 || owner.is_empty() || owner.len() > 120 {
         return Err(api_error(StatusCode::BAD_REQUEST, "Name and owner are required and must be within the allowed length."));
     }
-    let id = Uuid::new_v4();
+
+    let id = Uuid::new_v4().to_string();
     // This is an application identifier, not a cryptographically verified DID.
-    let did = format!("did:oncredsync:{}", id);
+    let did = format!("did:oncredsync:{id}");
     let network = input.network.unwrap_or_else(|| "Base Sepolia".to_string());
-    let row = sqlx::query_as::<_, Agent>(
-        "INSERT INTO agents (id, name, owner, did, wallet_address, network) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, owner, did, wallet_address, network, status, created_at, updated_at"
+    sqlx::query(
+        "INSERT INTO agents (id, name, owner, did, wallet_address, network) VALUES (?, ?, ?, ?, ?, ?)"
     )
-    .bind(id).bind(name).bind(owner).bind(did).bind(input.wallet_address).bind(network)
-    .fetch_one(&state.db).await.map_err(internal_error)?;
-    let _ = sqlx::query("INSERT INTO audit_events (event_type, resource_type, resource_id, details) VALUES ('agent.created', 'agent', $1, $2)")
-        .bind(row.id.to_string()).bind(json!({"name": row.name, "owner": row.owner}))
-        .execute(&state.db).await;
+    .bind(&id).bind(name).bind(owner).bind(&did).bind(input.wallet_address).bind(network)
+    .execute(&state.db).await.map_err(internal_error)?;
+
+    let row = sqlx::query_as::<_, Agent>(
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
+    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+
+    let _ = sqlx::query(
+        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'agent.created', 'agent', ?, ?)"
+    )
+    .bind(Uuid::new_v4().to_string()).bind(&row.id)
+    .bind(json!({"name": row.name, "owner": row.owner}))
+    .execute(&state.db).await;
     Ok(Json(row))
 }
 
 async fn update_agent_status(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
     Json(input): Json<UpdateAgentStatus>,
 ) -> ApiResult<Agent> {
+    if !valid_uuid(&id) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
+    }
     let status = input.status.to_lowercase();
     if !["active", "paused", "revoked"].contains(&status.as_str()) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Status must be active, paused, or revoked."));
     }
+    let result = sqlx::query("UPDATE agents SET status = ? WHERE id = ?")
+        .bind(&status).bind(&id).execute(&state.db).await.map_err(internal_error)?;
+    if result.rows_affected() == 0 {
+        let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ?")
+            .bind(&id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        if exists.is_none() {
+            return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
+        }
+    }
     let row = sqlx::query_as::<_, Agent>(
-        "UPDATE agents SET status = $2, updated_at = now() WHERE id = $1 RETURNING id, name, owner, did, wallet_address, network, status, created_at, updated_at"
-    ).bind(id).bind(&status).fetch_optional(&state.db).await.map_err(internal_error)?
-      .ok_or_else(|| api_error(StatusCode::NOT_FOUND, "Agent not found."))?;
-    let _ = sqlx::query("INSERT INTO audit_events (event_type, resource_type, resource_id, details) VALUES ('agent.status_changed', 'agent', $1, $2)")
-        .bind(id.to_string()).bind(json!({"status": status})).execute(&state.db).await;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
+    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+    let _ = sqlx::query(
+        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'agent.status_changed', 'agent', ?, ?)"
+    ).bind(Uuid::new_v4().to_string()).bind(&id).bind(json!({"status": status}))
+     .execute(&state.db).await;
     Ok(Json(row))
 }
 
-async fn list_policies(State(state): State<AppState>, Path(agent_id): Path<Uuid>) -> ApiResult<Vec<Policy>> {
+async fn list_policies(
+    State(state): State<AppState>,
+    Path(agent_id): Path<String>,
+) -> ApiResult<Vec<Policy>> {
+    if !valid_uuid(&agent_id) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
+    }
     let rows = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = $1 ORDER BY created_at DESC"
+        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? ORDER BY created_at DESC"
     ).bind(agent_id).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
 
 async fn create_policy(
     State(state): State<AppState>,
-    Path(agent_id): Path<Uuid>,
+    Path(agent_id): Path<String>,
     Json(input): Json<CreatePolicy>,
 ) -> ApiResult<Policy> {
+    if !valid_uuid(&agent_id) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
+    }
     if input.transaction_limit_cents <= 0 || input.daily_limit_cents <= 0 {
         return Err(api_error(StatusCode::BAD_REQUEST, "Spending limits must be positive integer cents."));
     }
     if input.approved_merchants.is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, "At least one approved merchant is required."));
     }
-    let exists: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM agents WHERE id = $1")
-        .bind(agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ?")
+        .bind(&agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
     if exists.is_none() {
         return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
     }
@@ -186,15 +233,24 @@ async fn create_policy(
     if merchants.is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, "Approved merchant entries cannot be blank."));
     }
+
+    let id = Uuid::new_v4().to_string();
     let name = input.name.unwrap_or_else(|| "Default policy".to_string());
+    sqlx::query(
+        "INSERT INTO spending_policies (id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).bind(&id).bind(&agent_id).bind(name.trim())
+     .bind(input.transaction_limit_cents).bind(input.daily_limit_cents)
+     .bind(json!(merchants)).bind(input.valid_until)
+     .execute(&state.db).await.map_err(internal_error)?;
+
     let row = sqlx::query_as::<_, Policy>(
-        "INSERT INTO spending_policies (agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at"
-    ).bind(agent_id).bind(name.trim()).bind(input.transaction_limit_cents)
-     .bind(input.daily_limit_cents).bind(merchants).bind(input.valid_until)
-     .fetch_one(&state.db).await.map_err(internal_error)?;
-    let _ = sqlx::query("INSERT INTO audit_events (event_type, resource_type, resource_id, details) VALUES ('policy.created', 'policy', $1, $2)")
-        .bind(row.id.to_string()).bind(json!({"agent_id": agent_id, "name": row.name}))
-        .execute(&state.db).await;
+        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ?"
+    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+    let _ = sqlx::query(
+        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'policy.created', 'policy', ?, ?)"
+    ).bind(Uuid::new_v4().to_string()).bind(&row.id)
+     .bind(json!({"agent_id": agent_id, "name": row.name}))
+     .execute(&state.db).await;
     Ok(Json(row))
 }
 
@@ -209,6 +265,9 @@ async fn create_payment(
     State(state): State<AppState>,
     Json(input): Json<CreatePayment>,
 ) -> ApiResult<Payment> {
+    if !valid_uuid(&input.agent_id) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "agent_id must be a UUID."));
+    }
     let merchant = input.merchant.trim().to_lowercase();
     let purpose = input.purpose.unwrap_or_default();
     if merchant.is_empty() || merchant.len() > 200 || input.amount_cents <= 0 {
@@ -216,15 +275,15 @@ async fn create_payment(
     }
 
     let agent = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = $1"
-    ).bind(input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
+    ).bind(&input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
     let Some(agent) = agent else {
         return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
     };
 
     let policy = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = $1 AND revoked = false ORDER BY created_at DESC LIMIT 1"
-    ).bind(input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
+    ).bind(&input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
 
     let mut rejection: Option<String> = None;
     if agent.status != "active" {
@@ -234,12 +293,14 @@ async fn create_payment(
             rejection = Some("Spending policy has expired.".to_string());
         } else if input.amount_cents > policy.transaction_limit_cents {
             rejection = Some("Payment exceeds the per-transaction limit.".to_string());
-        } else if !policy.approved_merchants.iter().any(|m| m.eq_ignore_ascii_case(&merchant)) {
+        } else if !merchant_list(&policy.approved_merchants).iter().any(|m| m.eq_ignore_ascii_case(&merchant)) {
             rejection = Some("Merchant is not on the approved allowlist.".to_string());
         } else {
+            let now = Utc::now();
+            let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
             let daily_spend: (i64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(amount_cents), 0)::bigint FROM payments WHERE agent_id = $1 AND status = 'settled' AND created_at >= date_trunc('day', now())"
-            ).bind(input.agent_id).fetch_one(&state.db).await.map_err(internal_error)?;
+                "SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE agent_id = ? AND status = 'settled' AND created_at >= ?"
+            ).bind(&input.agent_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
             if daily_spend.0.saturating_add(input.amount_cents) > policy.daily_limit_cents {
                 rejection = Some("Payment would exceed the daily spending limit.".to_string());
             }
@@ -248,23 +309,30 @@ async fn create_payment(
         rejection = Some("No active spending policy is configured for this agent.".to_string());
     }
 
-    // Demo mode records an approval decision only. It does not transfer funds or settle an x402 payment.
+    // Demo mode records a decision only; it does not transfer funds or settle an x402 payment.
     let status = if rejection.is_some() { "rejected" } else { "pending" };
+    let id = Uuid::new_v4().to_string();
+    sqlx::query(
+        "INSERT INTO payments (id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo')"
+    ).bind(&id).bind(&input.agent_id).bind(&merchant).bind(&purpose)
+     .bind(input.amount_cents).bind(status).bind(rejection.clone())
+     .execute(&state.db).await.map_err(internal_error)?;
     let row = sqlx::query_as::<_, Payment>(
-        "INSERT INTO payments (agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol) VALUES ($1, $2, $3, $4, $5, $6, 'demo') RETURNING id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol, tx_hash, created_at"
-    ).bind(input.agent_id).bind(merchant).bind(purpose).bind(input.amount_cents)
-     .bind(status).bind(rejection.clone()).fetch_one(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ?"
+    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
 
-    let _ = sqlx::query("INSERT INTO audit_events (event_type, resource_type, resource_id, details) VALUES ($1, 'payment', $2, $3)")
-        .bind(if rejection.is_some() { "payment.rejected" } else { "payment.pending" })
-        .bind(row.id.to_string())
-        .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_cents": row.amount_cents, "reason": rejection}))
-        .execute(&state.db).await;
+    let _ = sqlx::query(
+        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'payment', ?, ?)"
+    ).bind(Uuid::new_v4().to_string())
+     .bind(if rejection.is_some() { "payment.rejected" } else { "payment.pending" })
+     .bind(&row.id)
+     .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_cents": row.amount_cents, "reason": rejection}))
+     .execute(&state.db).await;
     Ok(Json(row))
 }
 
-async fn list_audit_events(State(state): State<AppState>) -> ApiResult<Vec<serde_json::Value>> {
-    let rows = sqlx::query_as::<_, (Uuid, String, String, Option<String>, serde_json::Value, DateTime<Utc>)>(
+async fn list_audit_events(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
+    let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Value, DateTime<Utc>)>(
         "SELECT id, event_type, resource_type, resource_id, details, created_at FROM audit_events ORDER BY created_at DESC LIMIT 200"
     ).fetch_all(&state.db).await.map_err(internal_error)?;
     let events = rows.into_iter().map(|(id, event_type, resource_type, resource_id, details, created_at)| {
@@ -281,8 +349,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let database_url = env::var("DATABASE_URL")
-        .map_err(|_| "DATABASE_URL is required; copy .env.example to .env and configure PostgreSQL")?;
-    let pool = PgPoolOptions::new().max_connections(10).connect(&database_url).await?;
+        .map_err(|_| "DATABASE_URL is required; copy .env.example to .env and configure MySQL")?;
+    let pool = MySqlPoolOptions::new().max_connections(10).connect(&database_url).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
 
     let origin = env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "http://localhost:5173".to_string());
