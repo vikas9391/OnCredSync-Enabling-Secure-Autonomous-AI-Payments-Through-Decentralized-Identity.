@@ -1,56 +1,58 @@
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
-
 CREATE TABLE IF NOT EXISTS agents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND 100),
-    owner TEXT NOT NULL CHECK (length(trim(owner)) BETWEEN 1 AND 120),
-    did TEXT NOT NULL UNIQUE,
-    wallet_address TEXT,
-    network TEXT NOT NULL DEFAULT 'Base Sepolia',
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'paused', 'revoked')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
+    id CHAR(36) PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    owner VARCHAR(120) NOT NULL,
+    did VARCHAR(160) NOT NULL UNIQUE,
+    wallet_address VARCHAR(255) NULL,
+    network VARCHAR(100) NOT NULL DEFAULT 'Base Sepolia',
+    status ENUM('active', 'paused', 'revoked') NOT NULL DEFAULT 'active',
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    CONSTRAINT chk_agents_name CHECK (CHAR_LENGTH(TRIM(name)) BETWEEN 1 AND 100),
+    CONSTRAINT chk_agents_owner CHECK (CHAR_LENGTH(TRIM(owner)) BETWEEN 1 AND 120)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS spending_policies (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    name TEXT NOT NULL DEFAULT 'Default policy',
-    transaction_limit_cents BIGINT NOT NULL CHECK (transaction_limit_cents > 0),
-    daily_limit_cents BIGINT NOT NULL CHECK (daily_limit_cents > 0),
-    approved_merchants TEXT[] NOT NULL DEFAULT '{}',
-    valid_until TIMESTAMPTZ,
+    id CHAR(36) PRIMARY KEY,
+    agent_id CHAR(36) NOT NULL,
+    name VARCHAR(160) NOT NULL DEFAULT 'Default policy',
+    transaction_limit_cents BIGINT NOT NULL,
+    daily_limit_cents BIGINT NOT NULL,
+    approved_merchants JSON NOT NULL,
+    valid_until DATETIME(3) NULL,
     revoked BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_policies_agent ON spending_policies(agent_id, created_at DESC);
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    CONSTRAINT chk_policy_transaction_limit CHECK (transaction_limit_cents > 0),
+    CONSTRAINT chk_policy_daily_limit CHECK (daily_limit_cents > 0),
+    CONSTRAINT fk_policy_agent FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+    INDEX idx_policies_agent_created (agent_id, created_at)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS payments (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id UUID NOT NULL REFERENCES agents(id),
-    merchant TEXT NOT NULL,
-    purpose TEXT NOT NULL DEFAULT '',
-    amount_cents BIGINT NOT NULL CHECK (amount_cents > 0),
-    status TEXT NOT NULL CHECK (status IN ('settled', 'rejected', 'pending')),
-    rejection_reason TEXT,
-    protocol TEXT NOT NULL DEFAULT 'demo',
-    tx_hash TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_payments_agent_created ON payments(agent_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_payments_status_created ON payments(status, created_at DESC);
+    id CHAR(36) PRIMARY KEY,
+    agent_id CHAR(36) NOT NULL,
+    merchant VARCHAR(200) NOT NULL,
+    purpose VARCHAR(500) NOT NULL DEFAULT '',
+    amount_cents BIGINT NOT NULL,
+    status ENUM('settled', 'rejected', 'pending') NOT NULL,
+    rejection_reason VARCHAR(500) NULL,
+    protocol VARCHAR(80) NOT NULL DEFAULT 'demo',
+    tx_hash VARCHAR(255) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    CONSTRAINT chk_payment_amount CHECK (amount_cents > 0),
+    CONSTRAINT fk_payment_agent FOREIGN KEY (agent_id) REFERENCES agents(id),
+    INDEX idx_payments_agent_created (agent_id, created_at),
+    INDEX idx_payments_status_created (status, created_at)
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS audit_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor TEXT NOT NULL DEFAULT 'system',
-    event_type TEXT NOT NULL,
-    resource_type TEXT NOT NULL,
-    resource_id TEXT,
-    details JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_events(created_at DESC);
+    id CHAR(36) PRIMARY KEY,
+    actor VARCHAR(120) NOT NULL DEFAULT 'system',
+    event_type VARCHAR(120) NOT NULL,
+    resource_type VARCHAR(80) NOT NULL,
+    resource_id VARCHAR(160) NULL,
+    details JSON NOT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    INDEX idx_audit_created (created_at)
+) ENGINE=InnoDB;
