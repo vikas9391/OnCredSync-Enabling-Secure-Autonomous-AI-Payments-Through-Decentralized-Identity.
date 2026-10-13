@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type ApiAgent, type ApiPayment } from "./api";
+import { api, type ApiAgent, type ApiAuditEvent, type ApiPayment, type ApiPolicy } from "./api";
 import {
   Activity, ArrowRight, ArrowUpRight, Bell,
   Bot, ChevronDown, CircleHelp, Clock3, Command, Copy, CreditCard,
@@ -34,7 +34,7 @@ export default function App() {
   const [page, setPage] = useState<Page>("Overview");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [loadingData, setLoadingData] = useState(true);
+  const [loadingData, setLoadingData] = useState(true);\n  const [auditEvents, setAuditEvents] = useState<ApiAuditEvent[]>([]);\n  const [policiesByAgent, setPoliciesByAgent] = useState<Record<string, ApiPolicy[]>>({});
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -192,7 +192,7 @@ export default function App() {
           {page === "Spending policies" && <PoliciesPage agents={agents} policyOpen={() => setPolicyOpen(true)} onNotify={notify} />}
           {page === "Payments" && <PaymentsPage payments={filteredPayments} query={query} setQuery={setQuery} paymentFilter={paymentFilter} setPaymentFilter={setPaymentFilter}/>}
           {page === "Identity registry" && <IdentityPage agents={agents} showIdentity={showIdentity} setShowIdentity={setShowIdentity} onNotify={notify}/>}
-          {page === "Activity log" && <ActivityPage payments={payments}/>}
+          {page === "Activity log" && <ActivityPage events={auditEvents} payments={payments}/>}
           {page === "Settings" && <SettingsPage onNotify={notify}/>}
           <footer className="page-footer"><span>© 2026 OnCredSync. Autonomous by design.</span><span><span className="footer-status"/>{ "Frontend prototype · Not connected to a live chain" }</span></footer>
         </div>
