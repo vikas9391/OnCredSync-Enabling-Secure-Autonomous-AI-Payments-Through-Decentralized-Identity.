@@ -1,11 +1,11 @@
 # OnCredSync Rust API
 
-Axum REST API and PostgreSQL persistence layer.
+Axum REST API with MySQL persistence using SQLx.
 
 ## Prerequisites
 
 - Rust stable toolchain
-- PostgreSQL 14+
+- MySQL 8.0+
 - A database named `oncredsync`
 
 ## Run locally (PowerShell)
@@ -15,11 +15,11 @@ From the repository root:
 ```powershell
 cd backend
 Copy-Item .env.example .env
-# Edit .env and set DATABASE_URL for your PostgreSQL instance.
+# Edit .env and replace YOUR_PASSWORD with your MySQL root password.
 cargo run
 ```
 
-The service runs on `http://127.0.0.1:8080` by default. SQLx migrations run automatically at startup.
+The service runs on `http://127.0.0.1:8080` by default. SQLx migrations run automatically at startup. Do not commit your local `.env` file.
 
 ## Endpoints
 
