@@ -5,6 +5,15 @@ export interface ApiAgent {
   wallet_address: string | null; network: string; status: "active" | "paused" | "revoked";
   created_at: string; updated_at: string;
 }
+export interface ApiPolicy {
+  id: string; agent_id: string; name: string; transaction_limit_cents: number;
+  daily_limit_cents: number; approved_merchants: string[]; valid_until: string | null;
+  revoked: boolean; created_at: string; updated_at: string;
+}
+export interface ApiAuditEvent {
+  id: string; event_type: string; resource_type: string; resource_id: string | null;
+  details: unknown; created_at: string;
+}
 export interface ApiPayment {
   id: string; agent_id: string; merchant: string; purpose: string;
   amount_cents: number; status: "settled" | "pending" | "rejected";
@@ -27,9 +36,11 @@ export const api = {
     request<ApiAgent>("/api/v1/agents", { method: "POST", body: JSON.stringify(body) }),
   setAgentStatus: (id: string, status: "active" | "paused" | "revoked") =>
     request<ApiAgent>(`/api/v1/agents/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  listPolicies: (agentId: string) => request<ApiPolicy[]>(`/api/v1/agents/${encodeURIComponent(agentId)}/policies`),
   createPolicy: (agentId: string, body: { name: string; transaction_limit_cents: number; daily_limit_cents: number; approved_merchants: string[] }) =>
-    request<unknown>(`/api/v1/agents/${encodeURIComponent(agentId)}/policies`, { method: "POST", body: JSON.stringify(body) }),
+    request<ApiPolicy>(`/api/v1/agents/${encodeURIComponent(agentId)}/policies`, { method: "POST", body: JSON.stringify(body) }),
   listPayments: () => request<ApiPayment[]>("/api/v1/payments"),
+  listAuditEvents: () => request<ApiAuditEvent[]>("/api/v1/audit-events"),
   createPayment: (body: { agent_id: string; merchant: string; purpose: string; amount_cents: number }) =>
     request<ApiPayment>("/api/v1/payments", { method: "POST", body: JSON.stringify(body) }),
 };
