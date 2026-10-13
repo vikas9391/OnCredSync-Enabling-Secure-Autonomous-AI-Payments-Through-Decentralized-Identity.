@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { api, type ApiAgent, type ApiPayment } from "./api";
 import {
   Activity, ArrowRight, ArrowUpRight, Bell,
   Bot, ChevronDown, CircleHelp, Clock3, Command, Copy, CreditCard,
@@ -26,11 +27,14 @@ const navigation = [
 ];
 const usd = (value: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
 const shortAddress = (value: string) => value.length > 22 ? value.slice(0, 14) + "…" + value.slice(-5) : value;
+const fromApiAgent = (a: ApiAgent, index = 0): Agent => ({ id: a.id, name: a.name, initials: a.name.split(/\\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(), identity: a.did, owner: a.owner, network: a.network, status: a.status === "active" ? "Active" : a.status === "paused" ? "Paused" : "Revoked", spent: 0, budget: 0, transactions: 0, color: ["violet", "blue", "orange", "green"][index % 4] });
+const fromApiPayment = (p: ApiPayment, agents: Agent[]): Payment => ({ id: p.id, agent: agents.find(a => a.id === p.agent_id)?.name ?? p.agent_id, merchant: p.merchant, purpose: p.purpose, amount: p.amount_cents / 100, status: p.status === "settled" ? "Settled" : p.status === "pending" ? "Pending" : "Rejected", time: new Date(p.created_at).toLocaleString(), hash: p.tx_hash ?? (p.rejection_reason ? p.rejection_reason : "No settlement (demo)") });
 
 export default function App() {
   const [page, setPage] = useState<Page>("Overview");
-  const [agents, setAgents] = useState<Agent[]>(seedAgents);
-  const [payments, setPayments] = useState<Payment[]>(seedPayments);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -46,13 +50,44 @@ export default function App() {
   const [policyPeriod, setPolicyPeriod] = useState("Daily");
   const [merchant, setMerchant] = useState("api.example.com");
   const [testAmount, setTestAmount] = useState("3.50");
-  const [testAgent, setTestAgent] = useState(seedAgents[0].id);
+  const [testAgent, setTestAgent] = useState("");
   const [testMerchant, setTestMerchant] = useState("Vector API");
   const [testResult, setTestResult] = useState<"Approved" | "Rejected" | null>(null);
 
   const notify = (message: string) => {
     setToast(message);
     window.setTimeout(() => setToast(""), 3200);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const apiAgents = await api.listAgents();
+        const mappedAgents = apiAgents.map(fromApiAgent);
+        const apiPayments = await api.listPayments();
+        if (!cancelled) {
+          setAgents(mappedAgents);
+          setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
+          setTestAgent(current => current || mappedAgents[0]?.id || "");
+        }
+      } catch (error) { if (!cancelled) notify(error instanceof Error ? "API load failed: " + error.message : "API load failed"); }
+      finally { if (!cancelled) setLoadingData(false); }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const refreshData = async () => {
+    setLoadingData(true);
+    try {
+      const apiAgents = await api.listAgents();
+      const mappedAgents = apiAgents.map(fromApiAgent);
+      const apiPayments = await api.listPayments();
+      setAgents(mappedAgents); setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
+      setTestAgent(current => mappedAgents.some(a => a.id === current) ? current : mappedAgents[0]?.id || "");
+      notify("Data refreshed from API");
+    } catch (error) { notify(error instanceof Error ? error.message : "Refresh failed"); }
+    finally { setLoadingData(false); }
   };
 
   const activeAgents = agents.filter(a => a.status === "Active").length;
@@ -65,46 +100,50 @@ export default function App() {
     return matches && (paymentFilter === "All transactions" || p.status === paymentFilter);
   }), [payments, query, paymentFilter]);
 
-  const createAgent = (event: React.FormEvent<HTMLFormElement>) => {
+  const createAgent = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = agentName.trim();
     if (!name) return;
-    const agent: Agent = {
-      id: "AG-" + (1028 + agents.length - seedAgents.length),
-      name, initials: name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(),
-      identity: "did:ethr:base:0x" + Math.random().toString(16).slice(2, 10) + "…" + Math.random().toString(16).slice(2, 6),
-      owner: agentOwner, network: "Base Sepolia", status: "Active", spent: 0,
-      budget: Math.max(0, Number(agentBudget) || 0), transactions: 0, color: ["violet","blue","orange","green"][agents.length % 4]
-    };
-    setAgents(current => [agent, ...current]); setAgentName(""); setAgentBudget("50"); setCreateOpen(false);
-    setPage("Agents"); notify("Agent created in this demo workspace");
+    try {
+      const created = await api.createAgent({ name, owner: agentOwner.trim(), network: "Base Sepolia" });
+      const agent = fromApiAgent(created, agents.length);
+      agent.budget = Math.max(0, Number(agentBudget) || 0);
+      setAgents(current => [agent, ...current]); setTestAgent(created.id); setAgentName(""); setAgentBudget("50"); setCreateOpen(false);
+      setPage("Agents"); notify("Agent saved to backend. Budget is display-only until a policy is configured.");
+    } catch (error) { notify(error instanceof Error ? error.message : "Agent creation failed"); }
   };
 
-  const toggleAgent = (agent: Agent) => {
+  const toggleAgent = async (agent: Agent) => {
     if (agent.status === "Revoked") { notify("Revoked identity cannot be reactivated"); return; }
-    setAgents(current => current.map(a => a.id === agent.id ? {...a, status: a.status === "Active" ? "Paused" : "Active"} : a));
-    notify(agent.status === "Active" ? agent.name + " paused" : agent.name + " activated");
+    const status = agent.status === "Active" ? "paused" : "active";
+    try {
+      const updated = await api.setAgentStatus(agent.id, status);
+      setAgents(current => current.map(a => a.id === agent.id ? fromApiAgent(updated, current.indexOf(a)) : a));
+      setSelectedAgent(current => current?.id === agent.id ? fromApiAgent(updated, agents.indexOf(agent)) : current);
+      notify(agent.name + (status === "paused" ? " paused" : " activated") + " and saved");
+    } catch (error) { notify(error instanceof Error ? error.message : "Agent status update failed"); }
   };
-  const revokeAgent = (agent: Agent) => {
-    setAgents(current => current.map(a => a.id === agent.id ? {...a, status: "Revoked"} : a));
-    setSelectedAgent(null); notify(agent.name + " revoked in this demo workspace");
+  const revokeAgent = async (agent: Agent) => {
+    try {
+      const updated = await api.setAgentStatus(agent.id, "revoked");
+      setAgents(current => current.map(a => a.id === agent.id ? fromApiAgent(updated, current.indexOf(a)) : a));
+      setSelectedAgent(null); notify(agent.name + " revoked and saved");
+    } catch (error) { notify(error instanceof Error ? error.message : "Agent revocation failed"); }
   };
 
-  const runPaymentTest = (event: React.FormEvent<HTMLFormElement>) => {
+  const runPaymentTest = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const agent = agents.find(a => a.id === testAgent);
     const amount = Number(testAmount);
-    const allowed = Boolean(agent && agent.status === "Active" && Number.isFinite(amount) && amount > 0 && amount <= 10 && amount <= (agent.budget - agent.spent) && testMerchant === "Vector API");
-    setTestResult(allowed ? "Approved" : "Rejected");
-    const payment: Payment = {
-      id: "TX-" + (89322 + payments.length - seedPayments.length),
-      agent: agent?.name ?? "Unknown agent", merchant: testMerchant, purpose: "Policy simulator request",
-      amount: Number.isFinite(amount) ? amount : 0, status: allowed ? "Settled" : "Rejected", time: "just now",
-      hash: allowed ? "0x" + Math.random().toString(16).slice(2, 10) + "…" + Math.random().toString(16).slice(2, 6) : "—"
-    };
-    setPayments(current => [payment, ...current]);
-    if (allowed && agent) setAgents(current => current.map(a => a.id === agent.id ? {...a, spent: a.spent + amount, transactions: a.transactions + 1} : a));
-    notify(allowed ? "Demo request passed policy checks" : "Demo request rejected by policy");
+    if (!agent) { notify("Register an agent before testing a payment"); return; }
+    if (!Number.isFinite(amount) || amount <= 0) { notify("Enter a positive payment amount"); return; }
+    try {
+      const result = await api.createPayment({ agent_id: agent.id, merchant: testMerchant, purpose: "Policy simulator request", amount_cents: Math.round(amount * 100) });
+      const mapped = fromApiPayment(result, agents);
+      setPayments(current => [mapped, ...current.filter(p => p.id !== mapped.id)]);
+      setTestResult(result.status === "rejected" ? "Rejected" : "Approved");
+      notify(result.status === "rejected" ? "Payment rejected: " + (result.rejection_reason ?? "policy check failed") : "Recorded as pending; no funds transferred");
+    } catch (error) { notify(error instanceof Error ? error.message : "Payment request failed"); }
   };
 
   const headline = page === "Overview" ? "Good evening, Vikas" : page;
@@ -135,7 +174,7 @@ export default function App() {
         <header className="topbar"><div className="breadcrumbs"><button className="mobile-menu icon-button" aria-label="Open menu" onClick={() => setSidebarOpen(true)}><Menu size={19}/></button><span>Workspace</span><span className="crumb-slash">/</span><strong>{page}</strong></div><div className="topbar-actions"><div className="network-pill"><span className="network-dot"/><span>Base Sepolia</span><ChevronDown size={13}/></div><button className="icon-button notification-button" aria-label="Notifications" onClick={() => notify("You're all caught up")}><Bell size={17}/><span className="notification-dot"/></button><div className="top-avatar">GV</div></div></header>
 
         <div className="page-content">
-          <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>{page === "Overview" ? "COMMAND CENTER" : "ONCREDSYNC WORKSPACE"}</div><h1>{headline}{page === "Overview" && <span className="wave"> ✳</span>}</h1><p>{subtitle}</p></div><div className="heading-actions"><button className="button button-secondary" onClick={() => notify("Dashboard data refreshed (demo)") }><RefreshCw size={15}/> Refresh</button><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New agent</button></div></div>
+          <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>{page === "Overview" ? "COMMAND CENTER" : "ONCREDSYNC WORKSPACE"}</div><h1>{headline}{page === "Overview" && <span className="wave"> ✳</span>}</h1><p>{subtitle}</p></div><div className="heading-actions"><button className="button button-secondary" onClick={refreshData} disabled={loadingData}><RefreshCw size={15}/> {loadingData ? "Loading…" : "Refresh"}</button><button className="button button-primary" onClick={() => setCreateOpen(true)}><Plus size={16}/> New agent</button></div></div>
 
           {page === "Overview" && <Overview agents={agents} payments={payments} totalSpent={totalSpent} totalBudget={totalBudget} activeAgents={activeAgents} rejectedPayments={rejectedPayments} onNavigate={setPage} onNewAgent={() => setCreateOpen(true)} onPaymentTest={() => {setTestResult(null);setPolicyOpen(true);}} onViewAgent={setSelectedAgent}/>}
           {page === "Agents" && <AgentsPage agents={filteredAgents} query={query} setQuery={setQuery} onNew={() => setCreateOpen(true)} onSelect={setSelectedAgent} onToggle={toggleAgent}/>}
