@@ -1,13 +1,13 @@
 import { useMemo, useState } from "react";
 import {
-  Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BadgeCheck, Bell, Blocks,
-  Bot, ChevronDown, CircleHelp, CirclePlus, Clock3, Command, Copy, CreditCard,
-  ExternalLink, Fingerprint, Gauge, KeyRound, LayoutDashboard, LockKeyhole,
+  Activity, ArrowRight, ArrowUpRight, Bell,
+  Bot, ChevronDown, CircleHelp, Clock3, Command, Copy, CreditCard,
+  ExternalLink, Fingerprint, Gauge, LayoutDashboard, LockKeyhole,
   Menu, MoreHorizontal, Network, Plus, Search, Settings2, Shield, ShieldAlert,
   ShieldCheck, SlidersHorizontal, Sparkles, WalletCards, X, Zap, Check, RefreshCw,
   Ban, Pause, Play, Eye, EyeOff, CheckCircle2, AlertTriangle, CircleDollarSign
 } from "lucide-react";
-import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
+import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { seedAgents, seedPayments, spendingTrend, type Agent, type Payment } from "./data";
 
 type Page = "Overview" | "Agents" | "Spending policies" | "Payments" | "Identity registry" | "Activity log" | "Settings";
