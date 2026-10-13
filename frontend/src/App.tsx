@@ -106,10 +106,21 @@ export default function App() {
     if (!name) return;
     try {
       const created = await api.createAgent({ name, owner: agentOwner.trim(), network: "Base Sepolia" });
+      const budgetCents = Math.round(Math.max(0, Number(agentBudget) || 0) * 100);
+      try {
+        await api.createPolicy(created.id, {
+          name: "Default spending policy",
+          transaction_limit_cents: 1000,
+          daily_limit_cents: Math.max(1, budgetCents),
+          approved_merchants: ["Vector API", "ComputeCloud", "OpenData Hub"],
+        });
+      } catch (policyError) {
+        notify("Agent created, but default policy setup failed: " + (policyError instanceof Error ? policyError.message : "unknown error"));
+      }
       const agent = fromApiAgent(created, agents.length);
-      agent.budget = Math.max(0, Number(agentBudget) || 0);
+      agent.budget = budgetCents / 100;
       setAgents(current => [agent, ...current]); setTestAgent(created.id); setAgentName(""); setAgentBudget("50"); setCreateOpen(false);
-      setPage("Agents"); notify("Agent saved to backend. Budget is display-only until a policy is configured.");
+      setPage("Agents"); notify("Agent saved to the backend with a default spending policy when policy creation succeeded.");
     } catch (error) { notify(error instanceof Error ? error.message : "Agent creation failed"); }
   };
 
