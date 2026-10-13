@@ -34,7 +34,9 @@ export default function App() {
   const [page, setPage] = useState<Page>("Overview");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
-  const [loadingData, setLoadingData] = useState(true);\n  const [auditEvents, setAuditEvents] = useState<ApiAuditEvent[]>([]);\n  const [policiesByAgent, setPoliciesByAgent] = useState<Record<string, ApiPolicy[]>>({});
+  const [loadingData, setLoadingData] = useState(true);
+  const [auditEvents, setAuditEvents] = useState<ApiAuditEvent[]>([]);
+  const [policiesByAgent, setPoliciesByAgent] = useState<Record<string, ApiPolicy[]>>({});
   const [query, setQuery] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -261,9 +263,22 @@ function IdentityPage({agents,showIdentity,setShowIdentity,onNotify}:{agents:Age
   return <div className="section-stack"><div className="identity-hero"><div className="identity-graphic"><div className="identity-ring ring-one"/><div className="identity-ring ring-two"/><Fingerprint size={38}/></div><div><div className="eyebrow">DECENTRALIZED IDENTIFIERS</div><h2>One identity. Portable trust.</h2><p>Each agent profile carries a demo DID reference. On-chain DID resolution and verifiable credentials are planned for the integration phase.</p><button className="button button-secondary" onClick={()=>onNotify("Live DID resolver is not connected yet")}><ExternalLink size={14}/> DID resolver <span className="coming-soon">COMING SOON</span></button></div></div><div className="section-heading-row"><div><h2>Agent identity registry</h2><p>{agents.length} identities in this demo workspace.</p></div><button className="button button-secondary" onClick={()=>setShowIdentity(!showIdentity)}>{showIdentity?<EyeOff size={15}/>:<Eye size={15}/>} {showIdentity?"Hide full IDs":"Reveal IDs"}</button></div><div className="panel registry-list">{agents.map(a=><div className="registry-item" key={a.id}><AgentAvatar agent={a}/><div className="registry-main"><strong>{a.name}</strong><code>{showIdentity?a.identity:shortAddress(a.identity)}</code></div><Status value={a.status}/><button className="icon-button subtle-icon" title="Copy DID" aria-label="Copy DID" onClick={()=>{navigator.clipboard?.writeText(a.identity);onNotify("Demo identity copied")}}><Copy size={15}/></button></div>)}</div><div className="notice-box wide-notice"><ShieldCheck size={17}/><span>These identifiers are generated locally for UI demonstration. They are not registered DIDs, signed credentials, or proof of blockchain ownership.</span></div></div>;
 }
 
-function ActivityPage({payments}:{payments:Payment[]}) {
-  const events=[...payments.map(p=>({id:p.id,title:p.status==="Rejected"?"Payment request rejected":p.status==="Pending"?"Payment settlement pending":"Payment settled",desc:p.agent+" · "+p.merchant+" · "+usd(p.amount),time:p.time,status:p.status})),{id:"EV-001",title:"Workspace demo initialized",desc:"OnCredSync local prototype started",time:"Today",status:"Settled" as const}];
-  return <div className="section-stack"><div className="panel audit-panel"><div className="panel-heading"><div><div className="panel-title">Workspace activity</div><div className="panel-subtitle">Recent events in the local demo session</div></div><span className="demo-badge">NOT ON-CHAIN</span></div><div className="timeline">{events.map((e,i)=><div className="timeline-item" key={e.id}><div className={"timeline-icon "+(e.status==="Rejected"?"timeline-rejected":e.status==="Pending"?"timeline-pending":"timeline-success")}>{e.status==="Rejected"?<ShieldAlert size={15}/>:e.status==="Pending"?<Clock3 size={15}/>:<Check size={15}/>}</div><div className="timeline-content"><strong>{e.title}</strong><span>{e.desc}</span><small>{e.id}</small></div><time>{e.time}</time></div>)}</div></div><div className="subtle-disclaimer"><Activity size={15}/> This log is client-side demo history and is cleared when the app reloads.</div></div>;
+function ActivityPage({events,payments}:{events:ApiAuditEvent[];payments:Payment[]}) {
+  const rows = events.map(e => ({
+    id: e.id,
+    title: e.event_type.replace(/[._]/g, " "),
+    desc: e.resource_type + (e.resource_id ? " · " + e.resource_id : "") + " · " + JSON.stringify(e.details),
+    time: new Date(e.created_at).toLocaleString(),
+    status: e.event_type.includes("rejected") ? "Rejected" : e.event_type.includes("pending") ? "Pending" : "Settled"
+  }));
+  const timeline = rows.length ? rows : payments.map(p => ({
+    id: p.id,
+    title: p.status === "Rejected" ? "Payment request rejected" : p.status === "Pending" ? "Payment settlement pending" : "Payment settled",
+    desc: p.agent + " · " + p.merchant + " · " + usd(p.amount),
+    time: p.time,
+    status: p.status
+  }));
+  return <div className="section-stack"><div className="panel audit-panel"><div className="panel-heading"><div><div className="panel-title">Workspace activity</div><div className="panel-subtitle">Events persisted by the Rust API</div></div><span className="demo-badge">NOT ON-CHAIN</span></div><div className="timeline">{timeline.map(e=><div className="timeline-item" key={e.id}><div className={"timeline-icon "+(e.status==="Rejected"?"timeline-rejected":e.status==="Pending"?"timeline-pending":"timeline-success")}>{e.status==="Rejected"?<ShieldAlert size={15}/>:e.status==="Pending"?<Clock3 size={15}/>:<Check size={15}/>}</div><div className="timeline-content"><strong>{e.title}</strong><span>{e.desc}</span><small>{e.id}</small></div><time>{e.time}</time></div>)}</div></div><div className="subtle-disclaimer"><Activity size={15}/> Audit events are stored in MySQL; they are not blockchain proofs.</div></div>;
 }
 
 function SettingsPage({onNotify}:{onNotify:(s:string)=>void}) {
