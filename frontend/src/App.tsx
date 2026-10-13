@@ -67,10 +67,11 @@ export default function App() {
       try {
         const apiAgents = await api.listAgents();
         const mappedAgents = apiAgents.map(fromApiAgent);
-        const apiPayments = await api.listPayments();
+        const [apiPayments, apiEvents] = await Promise.all([api.listPayments(), api.listAuditEvents()]);
         if (!cancelled) {
           setAgents(mappedAgents);
           setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
+          setAuditEvents(apiEvents);
           setTestAgent(current => current || mappedAgents[0]?.id || "");
         }
       } catch (error) { if (!cancelled) notify(error instanceof Error ? "API load failed: " + error.message : "API load failed"); }
@@ -84,8 +85,10 @@ export default function App() {
     try {
       const apiAgents = await api.listAgents();
       const mappedAgents = apiAgents.map(fromApiAgent);
-      const apiPayments = await api.listPayments();
-      setAgents(mappedAgents); setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
+      const [apiPayments, apiEvents] = await Promise.all([api.listPayments(), api.listAuditEvents()]);
+      setAgents(mappedAgents);
+      setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
+      setAuditEvents(apiEvents);
       setTestAgent(current => mappedAgents.some(a => a.id === current) ? current : mappedAgents[0]?.id || "");
       notify("Data refreshed from API");
     } catch (error) { notify(error instanceof Error ? error.message : "Refresh failed"); }
