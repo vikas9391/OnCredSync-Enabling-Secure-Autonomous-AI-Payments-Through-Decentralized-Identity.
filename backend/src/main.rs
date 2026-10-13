@@ -299,7 +299,7 @@ async fn create_payment(
             let now = Utc::now();
             let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
             let daily_spend: (i64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE agent_id = ? AND status = 'settled' AND created_at >= ?"
+                "SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE agent_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
             ).bind(&input.agent_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
             if daily_spend.0.saturating_add(input.amount_cents) > policy.daily_limit_cents {
                 rejection = Some("Payment would exceed the daily spending limit.".to_string());
