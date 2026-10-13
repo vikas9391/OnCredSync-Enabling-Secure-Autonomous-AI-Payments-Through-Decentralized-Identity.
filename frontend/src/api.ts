@@ -27,6 +27,8 @@ export const api = {
     request<ApiAgent>("/api/v1/agents", { method: "POST", body: JSON.stringify(body) }),
   setAgentStatus: (id: string, status: "active" | "paused" | "revoked") =>
     request<ApiAgent>(`/api/v1/agents/${encodeURIComponent(id)}/status`, { method: "PATCH", body: JSON.stringify({ status }) }),
+  createPolicy: (agentId: string, body: { name: string; transaction_limit_cents: number; daily_limit_cents: number; approved_merchants: string[] }) =>
+    request<unknown>(`/api/v1/agents/${encodeURIComponent(agentId)}/policies`, { method: "POST", body: JSON.stringify(body) }),
   listPayments: () => request<ApiPayment[]>("/api/v1/payments"),
   createPayment: (body: { agent_id: string; merchant: string; purpose: string; amount_cents: number }) =>
     request<ApiPayment>("/api/v1/payments", { method: "POST", body: JSON.stringify(body) }),
