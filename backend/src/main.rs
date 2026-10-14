@@ -1,6 +1,8 @@
+mod auth;
 use axum::{
     extract::{Path, State},
     http::{header, HeaderValue, Method, StatusCode},
+    middleware,
     routing::{get, patch},
     Json, Router,
 };
@@ -364,15 +366,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_methods([Method::GET, Method::POST, Method::PATCH, Method::OPTIONS])
         .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION]);
 
-    let state = AppState { db: pool };
-    let app = Router::new()
-        .route("/health", get(health))
+    let jwt_secret = env::var("JWT_SECRET")
+        .map_err(|_| "JWT_SECRET is required; use a random secret of at least 32 characters")?;
+    if jwt_secret.len() < 32 {
+        return Err("JWT_SECRET must contain at least 32 characters".into());
+    }
+    auth::bootstrap_super_admin(&pool, &jwt_secret).await?;
+    let state = AppState { db: pool.clone() };
+    let auth_state = auth::AuthState { db: pool.clone(), jwt_secret };
+
+    // All business API routes require a valid session and pass a server-side role check.
+    let protected_api = Router::new()
         .route("/api/v1/agents", get(list_agents).post(create_agent))
         .route("/api/v1/agents/:id/status", patch(update_agent_status))
         .route("/api/v1/agents/:agent_id/policies", get(list_policies).post(create_policy))
         .route("/api/v1/payments", get(list_payments).post(create_payment))
         .route("/api/v1/audit-events", get(list_audit_events))
+        .route_layer(middleware::from_fn_with_state(auth_state.clone(), auth::authorize_api))
+        .with_state(state.clone());
+
+    let app = Router::new()
+        .route("/health", get(health))
         .with_state(state)
+        .merge(protected_api)
+        .merge(auth::router(auth_state))
         .layer(cors)
         .layer(TraceLayer::new_for_http());
 
