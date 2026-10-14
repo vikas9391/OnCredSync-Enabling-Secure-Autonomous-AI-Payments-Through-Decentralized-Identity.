@@ -55,7 +55,7 @@ Open `http://localhost:5173`. Configure the frontend API base URL with `VITE_API
 - `GET, POST /api/v1/payments`
 - `GET /api/v1/audit-events`
 
-All transaction and spending-policy amounts are denominated in ETH. The API accepts and returns wei as decimal strings (`1 ETH = 10^18 wei`) so the frontend and backend avoid floating-point arithmetic for stored balances. MySQL stores wei values in `DECIMAL(65,0)`, and the UI converts to ETH only for display.
+All transaction and spending-policy amounts are denominated in ETH. The API accepts and returns wei as decimal strings (`1 ETH = 10^18 wei`) so the frontend and backend avoid floating-point arithmetic for stored balances. MySQL stores wei values in `DECIMAL(65,0)`, and the UI converts to ETH only for display. The migration maps old demo-only dollar-like amounts to ETH using a fixed demo scale (1 legacy unit = 0.001 ETH); this is not a market exchange rate and does not represent real funds.
 
 ## Current implementation and limitations
 The dashboard reads and writes agents, spending policies, payment-decision records, and audit events through the Rust API backed by MySQL. Payment requests use ETH amounts, stored and validated in wei. Payment requests are evaluated against agent status and policy limits. Approved requests are recorded as **pending demo decisions**, not settled transfers. The UI labels this as demo activity; no wallet is signed and no ETH moves on Base Sepolia.
