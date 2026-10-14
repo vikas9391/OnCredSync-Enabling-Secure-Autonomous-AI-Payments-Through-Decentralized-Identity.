@@ -66,6 +66,9 @@ Available roles:
 **Important current boundary:** this is still a single shared workspace prototype. Workspace membership and per-workspace row isolation have not yet been implemented, so do not create accounts for mutually untrusted organizations or expose this deployment to the public internet. Until workspace isolation is complete, only Super Admins can provision/manage accounts. Password reset, forced password change, refresh/revocation tokens, MFA, and security review are also outstanding. Payment requests remain demo decisions; no real funds move.
 
 ## API overview
+- `POST /api/v1/auth/login` — issue an eight-hour Bearer token
+- `GET /api/v1/auth/me` and `PATCH /api/v1/auth/profile`
+- `GET, POST /api/v1/auth/users`; `PATCH /api/v1/auth/users/:id` (Super Admin only)
 - `GET /health`
 - `GET, POST /api/v1/agents`
 - `PATCH /api/v1/agents/:id/status`
