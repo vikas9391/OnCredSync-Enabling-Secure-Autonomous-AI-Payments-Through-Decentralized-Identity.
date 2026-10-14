@@ -2,8 +2,14 @@
 -- The old values were demo-only dollar-like units, not actual fiat balances.
 -- Preserve the displayed numeric amount as ETH for continuity; no exchange rate is implied.
 ALTER TABLE spending_policies
+  DROP CHECK chk_policy_transaction_limit,
+  DROP CHECK chk_policy_daily_limit,
   CHANGE COLUMN transaction_limit_cents transaction_limit_wei DECIMAL(65,0) NOT NULL,
   CHANGE COLUMN daily_limit_cents daily_limit_wei DECIMAL(65,0) NOT NULL;
+
+ALTER TABLE spending_policies
+  ADD CONSTRAINT chk_policy_transaction_limit CHECK (transaction_limit_wei > 0),
+  ADD CONSTRAINT chk_policy_daily_limit CHECK (daily_limit_wei > 0);
 
 ALTER TABLE payments
   CHANGE COLUMN amount_cents amount_wei DECIMAL(65,0) NOT NULL;
