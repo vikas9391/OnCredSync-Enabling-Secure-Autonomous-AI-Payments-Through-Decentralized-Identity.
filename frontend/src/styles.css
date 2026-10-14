@@ -35,3 +35,49 @@
 .auth-back-home{align-self:flex-start;border:0;background:transparent;color:#a7a9c4;padding:0;margin:0 0 23px;font-size:10px;cursor:pointer}.auth-back-home:hover{color:white}
 @media(max-width:900px){.landing-nav{padding:0 22px}.landing-hero{gap:15px;padding:65px 24px}.landing-hero h1{letter-spacing:-2px}.landing-node{min-width:178px}.landing-node-identity{right:-5px}.landing-node-payment{right:-6px}.landing-node-policy{left:-5px}.landing-stats{padding:20px 22px}.landing-stats>div{padding:7px 12px}.landing-stats span{font-size:9px}.landing-platform{padding:75px 24px}.landing-how,.landing-security,.landing-bottom-cta{margin-left:22px;margin-right:22px}.landing-security{grid-template-columns:44px 1fr}.landing-security-tags{grid-column:2;flex-direction:row;flex-wrap:wrap}.landing-security-tags span{margin-right:8px}}
 @media(max-width:650px){.landing-nav{height:66px;padding:0 18px}.landing-logo{font-size:18px}.landing-logo small,.landing-nav nav,.landing-nav-actions{display:none}.landing-nav .landing-mobile-menu{display:grid;place-items:center;width:36px;height:36px;background:#ffffff0d;color:#fff;border:1px solid #ffffff20;border-radius:8px}.landing-hero{grid-template-columns:1fr;padding:53px 22px 40px;gap:30px}.landing-hero h1{font-size:46px;letter-spacing:-2.2px}.landing-lead{font-size:12px}.landing-hero-actions{gap:13px;flex-wrap:wrap}.landing-proof{margin-top:30px}.landing-visual{min-height:380px;transform:scale(.92);transform-origin:top center;margin-bottom:-25px}.landing-core{width:175px;height:175px}.landing-node{min-width:166px;padding:9px;gap:7px}.landing-node-identity{top:55px;right:-8px}.landing-node-policy{bottom:78px;left:-8px}.landing-node-payment{bottom:28px;right:-8px}.landing-visual-foot{left:1%;font-size:7px}.landing-visual-label{left:1%}.landing-orbit-a{width:330px;height:230px}.landing-orbit-b{width:280px;height:310px}.landing-stats{grid-template-columns:1fr 1fr;gap:12px;padding:22px}.landing-stats>div{padding:8px 0;border:0;gap:9px}.landing-stats strong{font-size:16px}.landing-stats span{font-size:9px}.landing-platform{padding:65px 22px}.landing-section-head h2,.landing-how h2{font-size:35px}.landing-feature-grid{grid-template-columns:1fr;gap:12px;margin-top:28px}.landing-feature{min-height:0;padding:23px}.landing-feature p{min-height:0}.landing-how{grid-template-columns:1fr;gap:25px;padding:27px 22px;margin:0 14px}.landing-how h2{font-size:32px}.landing-security{grid-template-columns:1fr;padding:22px;margin:60px 14px 0;gap:13px}.landing-security-tags{grid-column:1;flex-direction:column}.landing-bottom-cta{margin:55px 22px 0;align-items:flex-start;flex-direction:column;padding:15px 0 35px}.landing-bottom-cta h2{font-size:32px}.landing-footer{padding:23px 22px;flex-wrap:wrap}.landing-footer>span:nth-child(2){order:3;width:100%}}
+
+
+/* OnCredSync landing page — align with the clean white dashboard theme */
+.landing-page{--land-ink:#182036;--land-muted:#68718a;--land-violet:#2563eb;background:#f8fafc;color:#182036}
+.landing-ambient-one{background:#2563eb;opacity:.055}.landing-ambient-two{background:#60a5fa;opacity:.07}
+.landing-nav{border-bottom-color:#e9ebf3}
+.landing-logo{color:#182036}.landing-logo>span:nth-child(2)>span{color:#2563eb}
+.landing-logo-mark{background:linear-gradient(145deg,#3b82f6,#1d4ed8);box-shadow:0 5px 16px #2563eb22}
+.landing-logo small{color:#8992a7}
+.landing-nav nav a,.landing-secondary{color:#68718a}.landing-nav nav a:hover,.landing-secondary:hover{color:#1d4ed8}
+.landing-signin{border-color:#dfe5ef;background:#fff;color:#334155}.landing-signin:hover{background:#f1f5f9}
+.landing-nav-cta{border-color:#2563eb;background:#2563eb;color:#fff}.landing-nav-cta:hover{background:#1d4ed8}
+.landing-kicker{color:#2563eb}.landing-kicker-dot{background:#3b82f6;box-shadow:0 0 10px #3b82f633}
+.landing-hero h1{color:#172033}.landing-hero h1 span,.landing-section-head h2 span,.landing-how h2 span,.landing-bottom-cta h2 span{color:#2563eb}
+.landing-lead{color:#68718a}
+.landing-primary{background:#2563eb;border-color:#2563eb;color:#fff;box-shadow:0 7px 18px #2563eb20}.landing-primary:hover{background:#1d4ed8;border-color:#1d4ed8}
+.landing-proof-avatars span{border-color:#fff;background:#eff6ff;color:#2563eb}
+.landing-proof strong{color:#273449}.landing-proof small{color:#7d879b}
+.landing-orbit{border-color:#2563eb20}.landing-orbit-b{border-color:#0ea5e91c}
+.landing-visual-label{color:#7d879b}
+.landing-core{border-color:#bfdbfe;background:radial-gradient(circle at 50% 25%,#eff6ff,#fff 75%);box-shadow:0 0 0 13px #2563eb08,0 15px 55px #1e40af12}
+.landing-core-icon{border-color:#bfdbfe;background:linear-gradient(145deg,#3b82f6,#1d4ed8);color:#fff}
+.landing-core strong{color:#172033}.landing-core small{color:#7d879b}.landing-core-line{border-left-color:#93c5fd}
+.landing-node{border-color:#e2e8f0;background:#fff;box-shadow:0 12px 32px #1e293b0d;color:#273449}
+.landing-node small{color:#8490a4}.landing-node>svg:last-child{color:#16a34a}
+.landing-node-icon{background:#eff6ff;color:#2563eb}
+.landing-visual-foot{color:#7d879b}
+.landing-stats{border-top-color:#e5eaf2;border-bottom-color:#e5eaf2}
+.landing-stats>div{border-right-color:#e5eaf2}.landing-stats strong{color:#2563eb}.landing-stats span{color:#68718a}
+.landing-section-head h2,.landing-how h2,.landing-bottom-cta h2{color:#172033}
+.landing-section-head p,.landing-how>div:first-child>p,.landing-bottom-cta p{color:#68718a}
+.landing-feature{border-color:#e5eaf2;background:#fff;box-shadow:0 4px 18px #1e293b05}
+.landing-feature-highlight{background:#fff;border-color:#bfdbfe;box-shadow:0 10px 30px #2563eb0a}
+.landing-feature-icon{background:#eff6ff;color:#2563eb}
+.landing-feature>small{color:#2563eb}.landing-feature h3{color:#202b40}.landing-feature p{color:#68718a}
+.landing-feature>a{color:#2563eb}.landing-feature>a:hover{color:#1d4ed8}
+.landing-how{border-color:#e5eaf2;background:radial-gradient(ellipse at 8% 0%,#dbeafe70,transparent 60%),#fff;box-shadow:0 8px 28px #1e293b05}
+.landing-steps>div{border-bottom-color:#e9edf4}.landing-steps>div>span,.landing-steps>div>svg{color:#2563eb}
+.landing-steps strong{color:#273449}.landing-steps p{color:#7d879b}
+.landing-security{border-color:#dbeafe;background:#fff;box-shadow:0 6px 22px #1e293b05}
+.landing-security-icon{background:#eff6ff;color:#2563eb}.landing-security h2{color:#202b40}.landing-security p{color:#68718a}
+.landing-security-tags span{color:#4b5870}.landing-security-tags svg{color:#16a34a}
+.landing-bottom-cta{border-bottom-color:#e5eaf2}
+.landing-footer .landing-logo{color:#182036}.landing-footer>span{color:#7d879b}
+.auth-back-home{color:#68718a}.auth-back-home:hover{color:#2563eb}
+@media(max-width:650px){.landing-nav .landing-mobile-menu{background:#fff;color:#334155;border-color:#dfe5ef}}
