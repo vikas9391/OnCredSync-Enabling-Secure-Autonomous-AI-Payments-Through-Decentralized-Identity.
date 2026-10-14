@@ -28,8 +28,12 @@ DATABASE_URL=mysql://oncredsync_user:REPLACE_WITH_A_LOCAL_PASSWORD@127.0.0.1:330
 HOST=127.0.0.1
 PORT=8080
 FRONTEND_ORIGIN=http://localhost:5173
+JWT_SECRET=REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_32_CHARACTERS
+BOOTSTRAP_ADMIN_NAME=Platform Administrator
+BOOTSTRAP_ADMIN_EMAIL=admin@your-company.example
+BOOTSTRAP_ADMIN_PASSWORD=REPLACE_WITH_A_UNIQUE_PASSWORD_AT_LEAST_12_CHARACTERS
 ```
-Use a URL-encoded password if it contains reserved URL characters. Keep `.env` private. The backend applies SQLx migrations on startup.
+Use a URL-encoded password if it contains reserved URL characters. Keep `.env` private. The backend applies SQLx migrations on startup. Set `JWT_SECRET` to a private random value (at least 32 characters). On first startup, `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` create the initial Super Admin account; the password must be at least 12 characters. Remove the bootstrap password from the environment after the account is created. Never commit `.env` or reuse a production password.
 
 ### 2. Start the backend
 ```bash
@@ -46,6 +50,20 @@ npm ci
 npm run dev
 ```
 Open `http://localhost:5173`. Configure the frontend API base URL with `VITE_API_BASE_URL`; the example points to `http://127.0.0.1:8080`.
+
+
+## Authentication and roles
+
+The API now requires a signed Bearer token for business endpoints. Passwords are bcrypt-hashed in MySQL, access tokens expire after eight hours, disabled accounts are rejected, and role permissions are checked on the server (not only hidden in the UI). The frontend has a sign-in screen, profile editor, and Super Admin account-management panel. There is no public sign-up endpoint.
+
+Available roles:
+- **Super Admin** — platform-level account and role administration plus business API access.
+- **Workspace Admin** — broad workspace operations.
+- **Finance / Payments Manager** — payment and policy reads plus payment simulation requests.
+- **Developer / Agent Operator** — agent operations and payment simulation within the API permission matrix.
+- **Read-only Viewer** — GET-only access.
+
+**Important current boundary:** this is still a single shared workspace prototype. Workspace membership and per-workspace row isolation have not yet been implemented, so do not create accounts for mutually untrusted organizations or expose this deployment to the public internet. Until workspace isolation is complete, only Super Admins can provision/manage accounts. Password reset, forced password change, refresh/revocation tokens, MFA, and security review are also outstanding. Payment requests remain demo decisions; no real funds move.
 
 ## API overview
 - `GET /health`
