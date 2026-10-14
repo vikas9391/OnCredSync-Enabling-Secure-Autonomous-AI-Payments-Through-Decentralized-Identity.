@@ -37,7 +37,7 @@ const shortAddress = (value: string) => value.length > 22 ? value.slice(0, 14) +
 const fromApiAgent = (a: ApiAgent, index = 0): Agent => ({ id: a.id, name: a.name, initials: a.name.split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase(), identity: a.did, owner: a.owner, network: a.network, status: a.status === "active" ? "Active" : a.status === "paused" ? "Paused" : "Revoked", spent: 0, budget: 0, transactions: 0, color: ["violet", "blue", "orange", "green"][index % 4] });
 const fromApiPayment = (p: ApiPayment, agents: Agent[]): Payment => ({ id: p.id, agent: agents.find(a => a.id === p.agent_id)?.name ?? p.agent_id, merchant: p.merchant, purpose: p.purpose, amount: weiToEth(p.amount_wei), status: p.status === "settled" ? "Settled" : p.status === "pending" ? "Pending" : "Rejected", time: new Date(p.created_at).toLocaleString(), hash: p.tx_hash ?? (p.rejection_reason ? p.rejection_reason : "Simulated only — no on-chain transfer") });
 
-export default function App() {
+export default function App({ currentUser }: { currentUser: { full_name: string; email: string; role: string } }) {
   const [page, setPage] = useState<Page>("Overview");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -189,7 +189,7 @@ export default function App() {
     } catch (error) { notify(error instanceof Error ? error.message : "Payment request failed"); }
   };
 
-  const headline = page === "Overview" ? "Good evening, Vikas" : page;
+  const headline = page === "Overview" ? `Welcome, ${currentUser.full_name.trim().split(/\\s+/)[0] || "there"}` : page;
   const subtitle = page === "Overview" ? "Here's what's happening with your autonomous payment network." : ({
     "Agents": "Manage agent identities, access and operational status.",
     "Spending policies": "Define the boundaries every autonomous payment must respect.",
@@ -209,7 +209,7 @@ export default function App() {
           <div className="nav-section"><div className="nav-label">PREFERENCES</div><button className={"nav-link " + (page === "Settings" ? "active" : "")} onClick={() => setPage("Settings")}><Settings2 size={17}/><span>Settings</span></button><button className="nav-link" onClick={() => notify("Help center will be connected soon")}><CircleHelp size={17}/><span>Help center</span><ExternalLink size={13} className="nav-external"/></button></div>
           <div className="sidebar-callout"><div className="callout-icon"><Sparkles size={16}/></div><strong>Autonomy, with guardrails.</strong><p>Every agent. One policy layer. Total control.</p><button onClick={() => {setPolicyOpen(true);setPage("Spending policies");}}>Explore policies <ArrowRight size={13}/></button><div className="callout-orb orb-one"/><div className="callout-orb orb-two"/></div>
         </div>
-        <div className="sidebar-bottom"><div className="status-line"><span className="live-dot"/><span>Demo environment</span><span className="status-right">LOCAL</span></div><button className="profile-button" onClick={() => {setPage("Settings");setSidebarOpen(false);}}><div className="profile-avatar">GV</div><div className="profile-info"><strong>Vikas Gummadala</strong><span>Workspace owner</span></div><MoreHorizontal size={18} className="muted"/></button></div>
+        <div className="sidebar-bottom"><div className="status-line"><span className="live-dot"/><span>Demo environment</span><span className="status-right">LOCAL</span></div><button className="profile-button" onClick={() => {setPage("Settings");setSidebarOpen(false);}}><div className="profile-avatar">GV</div><div className="profile-info"><strong>{currentUser.full_name}</strong><span>{currentUser.role.replaceAll("_", " ")}</span></div><MoreHorizontal size={18} className="muted"/></button></div>
       </aside>
       {sidebarOpen && <button className="mobile-backdrop" aria-label="Close menu" onClick={() => setSidebarOpen(false)}/>}
 
