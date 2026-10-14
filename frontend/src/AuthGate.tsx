@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { authApi, type AuthUser, type UserRole } from "./api";
 import App from "./App";
 import { ShieldCheck, LockKeyhole, LogOut, UserRound, Users, X, Save, Plus, RefreshCw } from "lucide-react";
