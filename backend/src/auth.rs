@@ -1,4 +1,5 @@
 use axum::{
+    body::Body,
     extract::{State},
     http::{Method, Request, StatusCode},
     middleware::{self, Next},
@@ -114,10 +115,10 @@ async fn login(State(state): State<AuthState>, Json(input): Json<LoginInput>) ->
     Ok(Json(AuthResponse { access_token, token_type: "Bearer", expires_in: 8 * 60 * 60, user }))
 }
 
-async fn require_auth<B>(
+async fn require_auth(
     State(state): State<AuthState>,
-    mut request: Request<B>,
-    next: Next<B>,
+    mut request: Request<Body>,
+    next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
     let claims = parse_claims(request.headers(), &state.jwt_secret)?;
     let current = sqlx::query_as::<_, (String, String, String)>(
@@ -131,12 +132,18 @@ async fn require_auth<B>(
     Ok(next.run(request).await)
 }
 
-pub async fn authorize_api<B>(
-    State(secret): State<String>,
-    mut request: Request<B>,
-    next: Next<B>,
+pub async fn authorize_api(
+    State(state): State<AuthState>,
+    mut request: Request<Body>,
+    next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
-    let claims = parse_claims(request.headers(), &secret)?;
+    let claims = parse_claims(request.headers(), &state.jwt_secret)?;
+    let current = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
+        .bind(&claims.sub).fetch_optional(&state.db).await
+        .map_err(|e| { tracing::error!(error=%e, "authorization lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Authorization is temporarily unavailable.") })?;
+    let Some((current_role, status)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
+    if status != "active" { return Err(err(StatusCode::FORBIDDEN, "This account is disabled.")); }
+    let claims = Claims { role: current_role, ..claims };
     let path = request.uri().path();
     let method = request.method().clone();
     let role = claims.role.as_str();
@@ -154,14 +161,10 @@ pub async fn authorize_api<B>(
             || (method == Method::PATCH && path.ends_with("/status"))
     } else { false };
     if !allowed { return Err(err(StatusCode::FORBIDDEN, "Your role does not have permission to perform this action.")); }
-    let current = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
-        .bind(&claims.sub).fetch_optional_from_request_placeholder().await;
-    let _ = current;
     request.extensions_mut().insert(claims);
     Ok(next.run(request).await)
 }
 
-trait DisabledPlaceholder {}
 fn parse_claims(headers: &axum::http::HeaderMap, secret: &str) -> Result<Claims, (StatusCode, Json<ErrorBody>)> {
     let value = headers.get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok()).unwrap_or_default();
