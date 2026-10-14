@@ -380,3 +380,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     axum::serve(listener, app).await?;
     Ok(())
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_valid_uuid() {
+        assert!(valid_uuid("550e8400-e29b-41d4-a716-446655440000"));
+    }
+
+    #[test]
+    fn rejects_invalid_uuid() {
+        assert!(!valid_uuid(""));
+        assert!(!valid_uuid("not-a-uuid"));
+    }
+
+    #[test]
+    fn reads_string_merchants_from_json_array() {
+        let merchants = merchant_list(&json!(["OpenAI", "Example Store"]));
+        assert_eq!(merchants, vec!["OpenAI", "Example Store"]);
+    }
+
+    #[test]
+    fn ignores_non_string_entries_in_merchant_json() {
+        let merchants = merchant_list(&json!(["OpenAI", 42, null, true]));
+        assert_eq!(merchants, vec!["OpenAI"]);
+    }
+
+    #[test]
+    fn non_array_merchant_json_returns_empty_list() {
+        assert!(merchant_list(&json!({"merchant": "OpenAI"})).is_empty());
+        assert!(merchant_list(&json!(null)).is_empty());
+    }
+}
