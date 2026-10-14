@@ -191,14 +191,14 @@ async fn update_profile(State(state): State<AuthState>, Extension(claims): Exten
 }
 
 async fn list_users(State(state): State<AuthState>, Extension(claims): Extension<Claims>) -> AuthResult<Vec<User>> {
-    if claims.role != "super_admin" && claims.role != "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Only administrators can view users.")); }
+    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can manage platform accounts until workspace isolation is enabled.")); }
     let users = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users ORDER BY created_at DESC")
         .fetch_all(&state.db).await.map_err(|e| { tracing::error!(error=%e, "users query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not list users.") })?;
     Ok(Json(users))
 }
 
 async fn create_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, Json(input): Json<CreateUserInput>) -> AuthResult<User> {
-    if claims.role != "super_admin" && claims.role != "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Only administrators can create users.")); }
+    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can provision accounts until workspace isolation is enabled.")); }
     let name = input.full_name.trim();
     let email = input.email.trim().to_lowercase();
     if name.is_empty() || name.len() > 120 || !email.contains('@') || input.password.len() < 12 {
@@ -222,8 +222,8 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
 }
 
 async fn update_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, axum::extract::Path(id): axum::extract::Path<String>, Json(input): Json<UpdateRoleInput>) -> AuthResult<User> {
-    if claims.role != "super_admin" && claims.role != "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Only administrators can manage users.")); }
-    if id == claims.sub && input.status.as_deref() == Some("disabled") { return Err(err(StatusCode::BAD_REQUEST, "You cannot disable your own account.")); }
+    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can manage platform accounts until workspace isolation is enabled.")); }
+    if id == claims.sub && (input.status.as_deref() == Some("disabled") || input.role.is_some()) { return Err(err(StatusCode::BAD_REQUEST, "You cannot disable or change the role of your own account.")); }
     if let Some(role) = input.role.as_deref() {
         if !allowed_role(role) && !(claims.role == "super_admin" && role == "super_admin") { return Err(err(StatusCode::BAD_REQUEST, "Unsupported role.")); }
         if claims.role != "super_admin" && role == "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only a Super Admin can grant the Super Admin role.")); }
