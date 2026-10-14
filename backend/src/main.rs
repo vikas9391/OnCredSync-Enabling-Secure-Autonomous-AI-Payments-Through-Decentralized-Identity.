@@ -36,8 +36,8 @@ struct Policy {
     id: String,
     agent_id: String,
     name: String,
-    transaction_limit_cents: i64,
-    daily_limit_cents: i64,
+    transaction_limit_wei: String,
+    daily_limit_wei: String,
     approved_merchants: Value,
     valid_until: Option<DateTime<Utc>>,
     revoked: bool,
@@ -51,7 +51,7 @@ struct Payment {
     agent_id: String,
     merchant: String,
     purpose: String,
-    amount_cents: i64,
+    amount_wei: String,
     status: String,
     rejection_reason: Option<String>,
     protocol: String,
@@ -75,8 +75,8 @@ struct UpdateAgentStatus {
 #[derive(Deserialize)]
 struct CreatePolicy {
     name: Option<String>,
-    transaction_limit_cents: i64,
-    daily_limit_cents: i64,
+    transaction_limit_wei: String,
+    daily_limit_wei: String,
     approved_merchants: Vec<String>,
     valid_until: Option<DateTime<Utc>>,
 }
@@ -86,7 +86,7 @@ struct CreatePayment {
     agent_id: String,
     merchant: String,
     purpose: Option<String>,
-    amount_cents: i64,
+    amount_wei: String,
 }
 
 #[derive(Serialize)]
@@ -204,7 +204,7 @@ async fn list_policies(
         return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
     }
     let rows = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? ORDER BY created_at DESC"
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? ORDER BY created_at DESC"
     ).bind(agent_id).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
@@ -217,8 +217,10 @@ async fn create_policy(
     if !valid_uuid(&agent_id) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
     }
-    if input.transaction_limit_cents <= 0 || input.daily_limit_cents <= 0 {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Spending limits must be positive integer cents."));
+    let transaction_limit_wei = input.transaction_limit_wei.parse::<u128>().ok();
+    let daily_limit_wei = input.daily_limit_wei.parse::<u128>().ok();
+    if transaction_limit_wei.is_none_or(|v| v == 0) || daily_limit_wei.is_none_or(|v| v == 0) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Spending limits must be positive integer wei amounts encoded as decimal strings."));
     }
     if input.approved_merchants.is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, "At least one approved merchant is required."));
@@ -237,14 +239,14 @@ async fn create_policy(
     let id = Uuid::new_v4().to_string();
     let name = input.name.unwrap_or_else(|| "Default policy".to_string());
     sqlx::query(
-        "INSERT INTO spending_policies (id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO spending_policies (id, agent_id, name, transaction_limit_wei, daily_limit_wei, approved_merchants, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?)"
     ).bind(&id).bind(&agent_id).bind(name.trim())
-     .bind(input.transaction_limit_cents).bind(input.daily_limit_cents)
+     .bind(input.transaction_limit_wei.trim()).bind(input.daily_limit_wei.trim())
      .bind(json!(merchants)).bind(input.valid_until)
      .execute(&state.db).await.map_err(internal_error)?;
 
     let row = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ?"
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ?"
     ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
     let _ = sqlx::query(
         "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'policy.created', 'policy', ?, ?)"
@@ -256,7 +258,7 @@ async fn create_policy(
 
 async fn list_payments(State(state): State<AppState>) -> ApiResult<Vec<Payment>> {
     let rows = sqlx::query_as::<_, Payment>(
-        "SELECT id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol, tx_hash, created_at FROM payments ORDER BY created_at DESC LIMIT 200"
+        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments ORDER BY created_at DESC LIMIT 200"
     ).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
@@ -270,8 +272,9 @@ async fn create_payment(
     }
     let merchant = input.merchant.trim().to_lowercase();
     let purpose = input.purpose.unwrap_or_default();
-    if merchant.is_empty() || merchant.len() > 200 || input.amount_cents <= 0 {
-        return Err(api_error(StatusCode::BAD_REQUEST, "Merchant is required and amount_cents must be a positive integer."));
+    let amount_wei = input.amount_wei.parse::<u128>().ok();
+    if merchant.is_empty() || merchant.len() > 200 || amount_wei.is_none_or(|v| v == 0) {
+        return Err(api_error(StatusCode::BAD_REQUEST, "Merchant is required and amount_wei must be a positive integer string."));
     }
 
     let agent = sqlx::query_as::<_, Agent>(
@@ -282,7 +285,7 @@ async fn create_payment(
     };
 
     let policy = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, transaction_limit_cents, daily_limit_cents, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
     ).bind(&input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
 
     let mut rejection: Option<String> = None;
@@ -291,17 +294,18 @@ async fn create_payment(
     } else if let Some(ref policy) = policy {
         if policy.valid_until.is_some_and(|expiry| expiry <= Utc::now()) {
             rejection = Some("Spending policy has expired.".to_string());
-        } else if input.amount_cents > policy.transaction_limit_cents {
+        } else if amount_wei.unwrap() > policy.transaction_limit_wei.parse::<u128>().unwrap_or(0) {
             rejection = Some("Payment exceeds the per-transaction limit.".to_string());
         } else if !merchant_list(&policy.approved_merchants).iter().any(|m| m.eq_ignore_ascii_case(&merchant)) {
             rejection = Some("Merchant is not on the approved allowlist.".to_string());
         } else {
             let now = Utc::now();
             let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
-            let daily_spend: (i64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(amount_cents), 0) FROM payments WHERE agent_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
+            let daily_spend: (String,) = sqlx::query_as(
+                "SELECT CAST(COALESCE(SUM(amount_wei), 0) AS CHAR) FROM payments WHERE agent_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
             ).bind(&input.agent_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
-            if daily_spend.0.saturating_add(input.amount_cents) > policy.daily_limit_cents {
+            let spent_wei = daily_spend.0.parse::<u128>().unwrap_or(u128::MAX);
+            if spent_wei.saturating_add(amount_wei.unwrap()) > policy.daily_limit_wei.parse::<u128>().unwrap_or(0) {
                 rejection = Some("Payment would exceed the daily spending limit.".to_string());
             }
         }
@@ -313,12 +317,12 @@ async fn create_payment(
     let status = if rejection.is_some() { "rejected" } else { "pending" };
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO payments (id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo')"
+        "INSERT INTO payments (id, agent_id, merchant, purpose, amount_wei, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo')"
     ).bind(&id).bind(&input.agent_id).bind(&merchant).bind(&purpose)
-     .bind(input.amount_cents).bind(status).bind(rejection.clone())
+     .bind(input.amount_wei.trim()).bind(status).bind(rejection.clone())
      .execute(&state.db).await.map_err(internal_error)?;
     let row = sqlx::query_as::<_, Payment>(
-        "SELECT id, agent_id, merchant, purpose, amount_cents, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ?"
+        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ?"
     ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
 
     let _ = sqlx::query(
@@ -326,7 +330,7 @@ async fn create_payment(
     ).bind(Uuid::new_v4().to_string())
      .bind(if rejection.is_some() { "payment.rejected" } else { "payment.pending" })
      .bind(&row.id)
-     .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_cents": row.amount_cents, "reason": rejection}))
+     .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_wei": row.amount_wei, "reason": rejection}))
      .execute(&state.db).await;
     Ok(Json(row))
 }
