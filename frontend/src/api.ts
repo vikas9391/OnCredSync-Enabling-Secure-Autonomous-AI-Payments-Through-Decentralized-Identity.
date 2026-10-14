@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8080";
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8080";
 
 export interface ApiAgent {
   id: string; name: string; owner: string; did: string;
@@ -22,7 +22,7 @@ export interface ApiPayment {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...(sessionStorage.getItem("oncredsync_token") ? { Authorization: `Bearer ${sessionStorage.getItem("oncredsync_token")}` } : {}), ...(init?.headers ?? {}) },
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
@@ -43,4 +43,15 @@ export const api = {
   listAuditEvents: () => request<ApiAuditEvent[]>("/api/v1/audit-events"),
   createPayment: (body: { agent_id: string; merchant: string; purpose: string; amount_wei: string }) =>
     request<ApiPayment>("/api/v1/payments", { method: "POST", body: JSON.stringify(body) }),
+};
+
+export type UserRole = "super_admin" | "workspace_admin" | "finance_manager" | "agent_operator" | "viewer";
+export interface AuthUser { id: string; full_name: string; email: string; role: UserRole; status: "active" | "disabled"; created_at: string; }
+export const authApi = {
+  login: (email: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  me: () => request<AuthUser>("/api/v1/auth/me"),
+  updateProfile: (full_name: string) => request<AuthUser>("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ full_name }) }),
+  users: () => request<AuthUser[]>("/api/v1/auth/users"),
+  createUser: (body: { full_name: string; email: string; password: string; role: UserRole }) => request<AuthUser>("/api/v1/auth/users", { method: "POST", body: JSON.stringify(body) }),
+  updateUser: (id: string, body: { role?: UserRole; status?: "active" | "disabled" }) => request<AuthUser>(`/api/v1/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
