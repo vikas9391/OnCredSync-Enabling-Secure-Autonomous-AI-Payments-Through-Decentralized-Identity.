@@ -81,3 +81,41 @@
 .landing-footer .landing-logo{color:#182036}.landing-footer>span{color:#7d879b}
 .auth-back-home{color:#68718a}.auth-back-home:hover{color:#2563eb}
 @media(max-width:650px){.landing-nav .landing-mobile-menu{background:#fff;color:#334155;border-color:#dfe5ef}}
+
+
+/* Authentication and account chrome — match the light workspace UI */
+.auth-screen{background:#f7f8fc;color:#182036}
+.auth-glow{opacity:.08}
+.auth-glow-a{background:#3b82f6}.auth-glow-b{background:#60a5fa}
+.auth-card{border:1px solid #e5eaf2;background:#fff;color:#182036;box-shadow:0 24px 70px #24324b12}
+.auth-brand{color:#182036}
+.auth-brand>span:nth-child(2)>span{color:#2563eb}
+.auth-brand-mark,.auth-mini-mark{background:linear-gradient(145deg,#3b82f6,#1d4ed8)}
+.auth-brand small{color:#2563eb}
+.auth-eyebrow{color:#2563eb}
+.auth-card h1{color:#172033}
+.auth-subtitle{color:#68718a}
+.auth-form label,.auth-user-create label{color:#4b556b}
+.auth-form input,.auth-user-create input,.auth-user-create select,.auth-user-info select{border-color:#dfe5ef;background:#fff;color:#182036}
+.auth-form input::placeholder,.auth-user-create input::placeholder{color:#9aa4b5}
+.auth-form input:focus,.auth-user-create input:focus,.auth-user-create select:focus{border-color:#60a5fa;box-shadow:0 0 0 3px #3b82f61c}
+.auth-form input:disabled{background:#f5f7fb;color:#778197}
+.auth-submit{border-color:#2563eb;background:#2563eb;color:#fff}
+.auth-submit:hover{background:#1d4ed8;filter:none}
+.auth-error{border-color:#fecaca;background:#fef2f2;color:#b91c1c}
+.auth-foot{color:#68718a}
+.auth-help{color:#8993a6}
+.auth-loading{background:#f7f8fc;color:#4b556b}
+.auth-back-home{color:#68718a}
+.auth-back-home:hover{color:#2563eb}
+.auth-session-bar{background:#fff;color:#182036;border-bottom:1px solid #e5eaf2;box-shadow:0 2px 8px #24324b06}
+.auth-session-divider{color:#c3cad6}
+.auth-session-role{color:#2563eb}
+.auth-session-actions button{border-color:#dfe5ef;background:#fff;color:#4b556b}
+.auth-session-actions button:hover{background:#f1f5f9}
+.auth-session-user{color:#68718a}
+.auth-panel>header .auth-eyebrow{color:#2563eb}
+.auth-panel .auth-notice{background:#eff6ff;color:#1d4ed8}
+.auth-user-avatar{background:#eff6ff;color:#2563eb}
+.auth-status-button:hover{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
+@media(max-width:650px){.auth-session-bar{background:#fff}.auth-session-actions{width:100%}.auth-session-actions button{min-height:34px}}
