@@ -153,7 +153,7 @@ pub async fn authorize_api(
     } else if role == "viewer" {
         is_read
     } else if role == "finance_manager" {
-        (is_read && (path.contains("/payments") || path.contains("/policies") || path.contains("/audit-events")))
+        (is_read && (path.contains("/agents") || path.contains("/payments") || path.contains("/policies") || path.contains("/audit-events")))
             || (method == Method::POST && path.ends_with("/payments"))
     } else if role == "agent_operator" {
         (is_read && (path.contains("/agents") || path.contains("/policies") || path.contains("/payments") || path.contains("/audit-events")))
