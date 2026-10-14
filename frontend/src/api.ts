@@ -31,6 +31,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 export const api = {
+  health: () => request<{ status: string; database: string; mode?: string }>("/health"),
   listAgents: () => request<ApiAgent[]>("/api/v1/agents"),
   createAgent: (body: { name: string; owner: string; wallet_address?: string; network?: string }) =>
     request<ApiAgent>("/api/v1/agents", { method: "POST", body: JSON.stringify(body) }),
