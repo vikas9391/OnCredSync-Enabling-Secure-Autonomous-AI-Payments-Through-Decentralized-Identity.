@@ -55,10 +55,10 @@ Open `http://localhost:5173`. Configure the frontend API base URL with `VITE_API
 - `GET, POST /api/v1/payments`
 - `GET /api/v1/audit-events`
 
-Amounts use integer cents to avoid floating-point currency calculations.
+All transaction and spending-policy amounts are denominated in ETH. The API accepts and returns wei as decimal strings (`1 ETH = 10^18 wei`) so the frontend and backend avoid floating-point arithmetic for stored balances. MySQL stores wei values in `DECIMAL(65,0)`, and the UI converts to ETH only for display.
 
 ## Current implementation and limitations
-The dashboard reads and writes agents, spending policies, payment-decision records, and audit events through the Rust API backed by MySQL. Payment requests are evaluated against agent status and policy limits. Approved requests are recorded as **pending demo decisions**, not settled transfers.
+The dashboard reads and writes agents, spending policies, payment-decision records, and audit events through the Rust API backed by MySQL. Payment requests use ETH amounts, stored and validated in wei. Payment requests are evaluated against agent status and policy limits. Approved requests are recorded as **pending demo decisions**, not settled transfers. The UI labels this as demo activity; no wallet is signed and no ETH moves on Base Sepolia.
 
 **This is not production-ready and must not be used to authorize real funds.** There is currently no authentication or authorization layer, cryptographically verified decentralized identity, wallet signing, live x402 verification/settlement, or smart-contract enforcement. Concurrent payment requests need transactional protection around daily-limit checks. Audit-write failures should be handled reliably before relying on the audit log for compliance. CI compiles the backend and builds the frontend; it does not prove payment security or end-to-end correctness.
 
@@ -73,4 +73,4 @@ npm run build
 cd ../backend
 cargo check
 ```
-Next milestones: add isolated API/integration tests, enforce spending limits atomically under concurrent requests, add authentication and authorization, and conduct a security review before integrating any real payment rail.
+Next milestones: add isolated API/integration tests, enforce spending limits atomically under concurrent requests, add authentication and authorization, and conduct a security review before integrating any real payment rail. Real ETH support would additionally require wallet connection, transaction signing, RPC integration, chain/receipt verification, and explicit testnet-only transaction handling.
