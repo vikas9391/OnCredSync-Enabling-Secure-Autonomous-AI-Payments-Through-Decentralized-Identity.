@@ -189,7 +189,7 @@ export default function App({ currentUser }: { currentUser: { full_name: string;
     } catch (error) { notify(error instanceof Error ? error.message : "Payment request failed"); }
   };
 
-  const headline = page === "Overview" ? `Welcome, ${currentUser.full_name.trim().split(/\\s+/)[0] || "there"}` : page;
+  const headline = page === "Overview" ? `Welcome, ${currentUser.full_name.trim().split(/\s+/)[0] || "there"}` : page;
   const subtitle = page === "Overview" ? "Here's what's happening with your autonomous payment network." : ({
     "Agents": "Manage agent identities, access and operational status.",
     "Spending policies": "Define the boundaries every autonomous payment must respect.",
