@@ -201,8 +201,8 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
     if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can provision accounts until workspace isolation is enabled.")); }
     let name = input.full_name.trim();
     let email = input.email.trim().to_lowercase();
-    if name.is_empty() || name.len() > 120 || !email.contains('@') || input.password.len() < 12 {
-        return Err(err(StatusCode::BAD_REQUEST, "Enter a valid name and email; passwords must be at least 12 characters."));
+    if name.is_empty() || name.len() > 120 || !email.contains('@') || input.password.len() < 12 || input.password.len() > 72 {
+        return Err(err(StatusCode::BAD_REQUEST, "Enter a valid name and email; passwords must be 12–72 bytes for bcrypt."));
     }
     if !allowed_role(&input.role) && !(claims.role == "super_admin" && input.role == "super_admin") {
         return Err(err(StatusCode::BAD_REQUEST, "Unsupported role."));
@@ -244,7 +244,7 @@ pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(),
     let email = match env::var("BOOTSTRAP_ADMIN_EMAIL") { Ok(v) => v.trim().to_lowercase(), Err(_) => return Ok(()) };
     let password = match env::var("BOOTSTRAP_ADMIN_PASSWORD") { Ok(v) => v, Err(_) => return Ok(()) };
     let name = env::var("BOOTSTRAP_ADMIN_NAME").unwrap_or_else(|_| "Platform Administrator".into());
-    if password.len() < 12 { return Err("BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters".into()); }
+    if password.len() < 12 || password.len() > 72 { return Err("BOOTSTRAP_ADMIN_PASSWORD must be 12–72 bytes for bcrypt".into()); }
     let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?").bind(&email).fetch_optional(pool).await?;
     if existing.is_none() {
         let password_hash = hash(password, DEFAULT_COST)?;
