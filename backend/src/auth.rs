@@ -60,7 +60,7 @@ struct UpdateRoleInput { role: Option<String>, status: Option<String> }
 struct UpdateProfileInput { full_name: String }
 
 #[derive(Debug, Serialize)]
-struct ErrorBody { error: String }
+pub struct ErrorBody { error: String }
 
 type AuthResult<T> = Result<Json<T>, (StatusCode, Json<ErrorBody>)>;
 
