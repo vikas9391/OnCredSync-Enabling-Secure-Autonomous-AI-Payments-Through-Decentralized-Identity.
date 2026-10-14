@@ -12,7 +12,9 @@ ALTER TABLE spending_policies
   ADD CONSTRAINT chk_policy_daily_limit CHECK (daily_limit_wei > 0);
 
 ALTER TABLE payments
-  CHANGE COLUMN amount_cents amount_wei DECIMAL(65,0) NOT NULL;
+  DROP CHECK chk_payment_amount,
+  CHANGE COLUMN amount_cents amount_wei DECIMAL(65,0) NOT NULL,
+  ADD CONSTRAINT chk_payment_amount CHECK (amount_wei > 0);
 
 UPDATE spending_policies
 SET transaction_limit_wei = CAST(transaction_limit_wei * 10000000000000000 AS DECIMAL(65,0)),
