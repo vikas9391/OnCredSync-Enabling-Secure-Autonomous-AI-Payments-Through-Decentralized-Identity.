@@ -73,8 +73,18 @@ export default function App() {
     (async () => {
       try {
         const apiAgents = await api.listAgents();
-        const mappedAgents = apiAgents.map(fromApiAgent);
+        const mappedAgents = await Promise.all(apiAgents.map(async (a, i) => {
+          const agent = fromApiAgent(a, i);
+          const policies = await api.listPolicies(a.id).catch(() => [] as ApiPolicy[]);
+          if (policies[0]) agent.budget = weiToEth(policies[0].daily_limit_wei);
+          return agent;
+        }));
         const [apiPayments, apiEvents] = await Promise.all([api.listPayments(), api.listAuditEvents()]);
+        mappedAgents.forEach(agent => {
+          const rows = apiPayments.filter(p => p.agent_id === agent.id);
+          agent.spent = rows.filter(p => p.status !== "rejected").reduce((sum, p) => sum + weiToEth(p.amount_wei), 0);
+          agent.transactions = rows.length;
+        });
         if (!cancelled) {
           setAgents(mappedAgents);
           setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
@@ -91,8 +101,18 @@ export default function App() {
     setLoadingData(true);
     try {
       const apiAgents = await api.listAgents();
-      const mappedAgents = apiAgents.map(fromApiAgent);
+      const mappedAgents = await Promise.all(apiAgents.map(async (a, i) => {
+        const agent = fromApiAgent(a, i);
+        const policies = await api.listPolicies(a.id).catch(() => [] as ApiPolicy[]);
+        if (policies[0]) agent.budget = weiToEth(policies[0].daily_limit_wei);
+        return agent;
+      }));
       const [apiPayments, apiEvents] = await Promise.all([api.listPayments(), api.listAuditEvents()]);
+      mappedAgents.forEach(agent => {
+        const rows = apiPayments.filter(p => p.agent_id === agent.id);
+        agent.spent = rows.filter(p => p.status !== "rejected").reduce((sum, p) => sum + weiToEth(p.amount_wei), 0);
+        agent.transactions = rows.length;
+      });
       setAgents(mappedAgents);
       setPayments(apiPayments.map(p => fromApiPayment(p, mappedAgents)));
       setAuditEvents(apiEvents);
