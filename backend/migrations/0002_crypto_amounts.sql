@@ -1,6 +1,6 @@
 -- Convert legacy demo amounts to wei-denominated ETH values.
--- The old values were demo-only dollar-like units, not actual fiat balances.
--- Preserve the displayed numeric amount as ETH for continuity; no exchange rate is implied.
+-- Legacy values were demo-only dollar-like units, not actual fiat balances.
+-- For UI continuity, map 1 legacy dollar-like unit to 0.001 ETH (1e15 wei); this is a demo scale, not an exchange rate.
 ALTER TABLE spending_policies
   DROP CHECK chk_policy_transaction_limit,
   DROP CHECK chk_policy_daily_limit,
@@ -17,8 +17,8 @@ ALTER TABLE payments
   ADD CONSTRAINT chk_payment_amount CHECK (amount_wei > 0);
 
 UPDATE spending_policies
-SET transaction_limit_wei = CAST(transaction_limit_wei * 10000000000000000 AS DECIMAL(65,0)),
-    daily_limit_wei = CAST(daily_limit_wei * 10000000000000000 AS DECIMAL(65,0));
+SET transaction_limit_wei = CAST(transaction_limit_wei * 10000000000000 AS DECIMAL(65,0)),
+    daily_limit_wei = CAST(daily_limit_wei * 10000000000000 AS DECIMAL(65,0));
 
 UPDATE payments
-SET amount_wei = CAST(amount_wei * 10000000000000000 AS DECIMAL(65,0));
+SET amount_wei = CAST(amount_wei * 10000000000000 AS DECIMAL(65,0));
