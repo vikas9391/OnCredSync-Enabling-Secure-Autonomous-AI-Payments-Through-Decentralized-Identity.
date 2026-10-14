@@ -119,3 +119,18 @@
 .auth-user-avatar{background:#eff6ff;color:#2563eb}
 .auth-status-button:hover{border-color:#bfdbfe;background:#eff6ff;color:#1d4ed8}
 @media(max-width:650px){.auth-session-bar{background:#fff}.auth-session-actions{width:100%}.auth-session-actions button{min-height:34px}}
+
+
+/* Keep page-level feature banners consistent with the light dashboard cards */
+.policy-hero{background:linear-gradient(115deg,#eff6ff,#f8fbff 75%);border:1px solid #dbeafe;color:#182036}
+.policy-hero .policy-hero-icon{border-color:#dbeafe;background:#dbeafe;color:#2563eb}
+.policy-hero .eyebrow{color:#2563eb}
+.policy-hero h2{color:#172033}
+.policy-hero p{color:#68718a}
+.policy-hero .demo-badge{background:#fff;border-color:#bfdbfe;color:#2563eb}
+.policy-hero>.button-light{background:#2563eb;border-color:#2563eb;color:#fff}
+.policy-hero>.button-light:hover{background:#1d4ed8}
+.policy-rule-icon{background:#eff6ff;color:#2563eb}
+.policy-tag{color:#2563eb}
+.settings-field input:focus,.settings-field select:focus,.modal-form input:focus,.modal-form select:focus{border-color:#60a5fa;box-shadow:0 0 0 3px #3b82f61c}
+.toggle-on{background:#2563eb}
