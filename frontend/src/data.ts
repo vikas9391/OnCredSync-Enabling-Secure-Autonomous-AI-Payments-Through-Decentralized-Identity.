@@ -43,11 +43,11 @@ export const seedPayments: Payment[] = [
 ];
 
 export const spendingTrend = [
-  { day: "Mon", approved: 22, rejected: 4 },
-  { day: "Tue", approved: 31, rejected: 2 },
-  { day: "Wed", approved: 27, rejected: 6 },
-  { day: "Thu", approved: 42, rejected: 3 },
-  { day: "Fri", approved: 35, rejected: 5 },
-  { day: "Sat", approved: 49, rejected: 2 },
-  { day: "Sun", approved: 39, rejected: 4 },
+  { day: "Mon", approved: 0.022, rejected: 0.004 },
+  { day: "Tue", approved: 0.031, rejected: 0.002 },
+  { day: "Wed", approved: 0.027, rejected: 0.006 },
+  { day: "Thu", approved: 0.042, rejected: 0.003 },
+  { day: "Fri", approved: 0.035, rejected: 0.005 },
+  { day: "Sat", approved: 0.049, rejected: 0.002 },
+  { day: "Sun", approved: 0.039, rejected: 0.004 },
 ];
