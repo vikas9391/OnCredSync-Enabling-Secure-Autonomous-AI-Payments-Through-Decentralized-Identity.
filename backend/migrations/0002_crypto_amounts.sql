@@ -1,6 +1,6 @@
 -- Convert legacy demo amounts to wei-denominated ETH values.
 -- Legacy values were demo-only dollar-like units, not actual fiat balances.
--- For UI continuity, legacy values stored in cents are converted by multiplying by 1e16 wei per cent preserves the old displayed numeric amount as ETH. This is a demo conversion, not an exchange rate.
+-- For UI continuity, legacy values stored in cents are converted by multiplying by 1e16 wei per cent, which preserves the old displayed numeric amount as ETH. This is a demo conversion, not an exchange rate.
 ALTER TABLE spending_policies
   DROP CHECK chk_policy_transaction_limit,
   DROP CHECK chk_policy_daily_limit,
@@ -21,4 +21,4 @@ SET transaction_limit_wei = CAST(transaction_limit_wei * 10000000000000000 AS DE
     daily_limit_wei = CAST(daily_limit_wei * 10000000000000000 AS DECIMAL(65,0));
 
 UPDATE payments
-SET amount_wei = CAST(amount_wei * 10000000000000 AS DECIMAL(65,0));
+SET amount_wei = CAST(amount_wei * 10000000000000000 AS DECIMAL(65,0));
