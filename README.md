@@ -65,12 +65,13 @@ Available roles:
 
 The Super Admin user-management panel shows this permission guide and supports account creation, role assignment, and account enable/disable. The backend prevents demoting or disabling the last active Super Admin and writes account creation/access-change events to the audit log.
 
-**Important current boundary:** this is still a single shared workspace prototype. Workspace membership and per-workspace row isolation have not yet been implemented, so do not create accounts for mutually untrusted organizations or expose this deployment to the public internet. Until workspace isolation is complete, only Super Admins can provision/manage accounts. Password reset, forced password change, refresh/revocation tokens, MFA, and security review are also outstanding. Payment requests remain demo decisions; no real funds move.
+**Workspace isolation:** migration `0004_workspace_isolation.sql` adds workspace records and tenant keys to users, agents, spending policies, payments, and audit events. Existing demo records are assigned to a `Legacy Demo Workspace`; existing non-Super-Admin accounts are assigned there as well. Super Admins can create workspaces and provision accounts into a selected workspace. Workspace Admins can list and manage accounts only inside their own workspace, and can create non-admin accounts there. Business API handlers derive workspace scope from the authenticated user's current database record and filter reads/updates/inserts by that workspace; clients cannot choose a workspace ID for business operations. Super Admin accounts have no workspace context and therefore cannot query tenant business data through these endpoints. Keep the service private until automated integration tests and a security review are completed. Password reset, forced password change, refresh/revocation tokens, and MFA remain outstanding. Payment requests remain demo decisions; no real funds move.
 
 ## API overview
 - `POST /api/v1/auth/login` — issue an eight-hour Bearer token
 - `GET /api/v1/auth/me` and `PATCH /api/v1/auth/profile`
-- `GET, POST /api/v1/auth/users`; `PATCH /api/v1/auth/users/:id` (Super Admin only)
+- `GET, POST /api/v1/auth/users`; `PATCH /api/v1/auth/users/:id` (Super Admin platform-wide; Workspace Admin within their workspace)
+- `GET, POST /api/v1/auth/workspaces` (Super Admin creates workspaces; users can only view their assigned workspace)
 - `GET /health`
 - `GET, POST /api/v1/agents`
 - `PATCH /api/v1/agents/:id/status`
@@ -83,7 +84,7 @@ All transaction and spending-policy amounts are denominated in ETH. The API acce
 ## Current implementation and limitations
 The dashboard reads and writes agents, spending policies, payment-decision records, and audit events through the Rust API backed by MySQL. Payment requests use ETH amounts, stored and validated in wei. Payment requests are evaluated against agent status and policy limits. Approved requests are recorded as **pending demo decisions**, not settled transfers. The UI labels this as demo activity; no wallet is signed and no ETH moves on Base Sepolia.
 
-**This is not production-ready and must not be used to authorize real funds.** Authentication and role-based API authorization are implemented for the prototype, but workspace-level row isolation, cryptographically verified decentralized identity, wallet signing, live x402 verification/settlement, and smart-contract enforcement are not implemented. Concurrent payment requests need transactional protection around daily-limit checks. Audit-write failures should be handled reliably before relying on the audit log for compliance. CI runs the frontend build and backend test command; this does not prove payment security or end-to-end correctness.
+**This is not production-ready and must not be used to authorize real funds.** Workspace-level filtering is now implemented in the API and backed by tenant keys and foreign keys, but it still needs dedicated integration tests that attempt cross-workspace reads and writes. Cryptographically verified decentralized identity, wallet signing, live x402 verification/settlement, and smart-contract enforcement are not implemented. Concurrent payment requests need transactional protection around daily-limit checks. Audit-write failures should be handled reliably before relying on the audit log for compliance. CI runs the frontend build and backend test command; this does not prove payment security or end-to-end correctness.
 
 ## Development checks
 ```bash
