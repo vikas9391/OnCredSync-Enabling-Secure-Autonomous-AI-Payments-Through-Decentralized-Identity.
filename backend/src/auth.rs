@@ -245,6 +245,9 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
     let Some((old_role, old_status, old_workspace_id)) = target else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
     if claims.role == "workspace_admin" && old_workspace_id != claims.workspace_id { return Err(err(StatusCode::NOT_FOUND, "User not found in your workspace.")); }
     if claims.role == "workspace_admin" && old_role == "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Workspace admins cannot modify another workspace admin.")); }
+    if old_role == "super_admin" && input.role.as_deref().is_some_and(|role| role != "super_admin") {
+        return Err(err(StatusCode::CONFLICT, "Platform administrator accounts cannot be converted into tenant accounts. Create a separate workspace account instead."));
+    }
     let removes_last_active_admin =
         old_role == "super_admin"
         && old_status == "active"
@@ -261,7 +264,11 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
     if let Some(role) = input.role.as_deref() {
         if !allowed_role(role) && !(claims.role == "super_admin" && role == "super_admin") { return Err(err(StatusCode::BAD_REQUEST, "Unsupported role.")); }
         if claims.role != "super_admin" && role == "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only a Super Admin can grant the Super Admin role.")); }
-        sqlx::query("UPDATE users SET role = ? WHERE id = ?").bind(role).bind(&id).execute(&state.db).await
+        if role == "super_admin" {
+            sqlx::query("UPDATE users SET role = ?, workspace_id = NULL WHERE id = ?").bind(role).bind(&id).execute(&state.db).await
+        } else {
+            sqlx::query("UPDATE users SET role = ? WHERE id = ?").bind(role).bind(&id).execute(&state.db).await
+        }
             .map_err(|e| { tracing::error!(error=%e, "role update failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not update role.") })?;
     }
     if let Some(status) = input.status.as_deref() {
