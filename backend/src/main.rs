@@ -194,8 +194,8 @@ async fn update_agent_status(
         }
     }
     let row = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
-    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ? AND workspace_id = ?"
+    ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
     let _ = sqlx::query(
         "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'agent.status_changed', 'agent', ?, ?)"
     ).bind(Uuid::new_v4().to_string()).bind(workspace_id).bind(&id).bind(json!({"status": status}))
