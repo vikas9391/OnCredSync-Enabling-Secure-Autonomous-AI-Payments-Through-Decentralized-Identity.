@@ -107,7 +107,7 @@ async fn login(State(state): State<AuthState>, Json(input): Json<LoginInput>) ->
     if email.is_empty() || input.password.is_empty() {
         return Err(err(StatusCode::BAD_REQUEST, "Email and password are required."));
     }
-    let row = sqlx::query_as::<_, (String, String, String, String, String, chrono::NaiveDateTime)>(
+    let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>, chrono::NaiveDateTime)>(
         "SELECT id, full_name, email, password_hash, role, workspace_id, created_at FROM users WHERE email = ? AND status = 'active' LIMIT 1"
     ).bind(&email).fetch_optional(&state.db).await
       .map_err(|e| { tracing::error!(error=%e, "login query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Login is temporarily unavailable.") })?;
@@ -131,7 +131,7 @@ async fn require_auth(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
     let claims = parse_claims(request.headers(), &state.jwt_secret)?;
-    let current = sqlx::query_as::<_, (String, String, String)>(
+    let current = sqlx::query_as::<_, (String, String, String, Option<String>)>(
         "SELECT id, role, status, workspace_id FROM users WHERE id = ?"
     ).bind(&claims.sub).fetch_optional(&state.db).await
       .map_err(|e| { tracing::error!(error=%e, "auth lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Authentication is temporarily unavailable.") })?;
