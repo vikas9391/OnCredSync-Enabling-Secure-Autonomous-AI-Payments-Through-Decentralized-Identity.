@@ -27,6 +27,7 @@ pub struct Claims {
     pub sub: String,
     pub email: String,
     pub role: String,
+    pub workspace_id: Option<String>,
     pub exp: usize,
 }
 
@@ -37,6 +38,7 @@ struct User {
     email: String,
     role: String,
     status: String,
+    workspace_id: Option<String>,
     created_at: chrono::NaiveDateTime,
 }
 
@@ -52,7 +54,13 @@ struct AuthResponse {
 struct LoginInput { email: String, password: String }
 
 #[derive(Debug, Deserialize)]
-struct CreateUserInput { full_name: String, email: String, password: String, role: String }
+struct CreateUserInput { full_name: String, email: String, password: String, role: String, workspace_id: Option<String> }
+
+#[derive(Debug, Deserialize)]
+struct CreateWorkspaceInput { name: String }
+
+#[derive(Debug, Serialize, FromRow)]
+struct Workspace { id: String, name: String, created_at: chrono::NaiveDateTime }
 
 #[derive(Debug, Deserialize)]
 struct UpdateRoleInput { role: Option<String>, status: Option<String> }
@@ -87,6 +95,7 @@ pub fn router(state: AuthState) -> Router {
         .route("/api/v1/auth/profile", patch(update_profile))
         .route("/api/v1/auth/users", get(list_users).post(create_user))
         .route("/api/v1/auth/users/:id", patch(update_user))
+        .route("/api/v1/auth/workspaces", get(list_workspaces).post(create_workspace))
         .route_layer(middleware::from_fn_with_state(state.clone(), require_auth))
         .with_state(state);
 
@@ -99,20 +108,20 @@ async fn login(State(state): State<AuthState>, Json(input): Json<LoginInput>) ->
         return Err(err(StatusCode::BAD_REQUEST, "Email and password are required."));
     }
     let row = sqlx::query_as::<_, (String, String, String, String, String, chrono::NaiveDateTime)>(
-        "SELECT id, full_name, email, password_hash, role, created_at FROM users WHERE email = ? AND status = 'active' LIMIT 1"
+        "SELECT id, full_name, email, password_hash, role, workspace_id, created_at FROM users WHERE email = ? AND status = 'active' LIMIT 1"
     ).bind(&email).fetch_optional(&state.db).await
       .map_err(|e| { tracing::error!(error=%e, "login query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Login is temporarily unavailable.") })?;
-    let Some((id, full_name, email, password_hash, role, created_at)) = row else {
+    let Some((id, full_name, email, password_hash, role, workspace_id, created_at)) = row else {
         return Err(err(StatusCode::UNAUTHORIZED, "Invalid email or password."));
     };
     if !verify(&input.password, &password_hash).unwrap_or(false) {
         return Err(err(StatusCode::UNAUTHORIZED, "Invalid email or password."));
     }
     let expires = Utc::now() + Duration::hours(8);
-    let claims = Claims { sub: id.clone(), email: email.clone(), role: role.clone(), exp: expires.timestamp() as usize };
+    let claims = Claims { sub: id.clone(), email: email.clone(), role: role.clone(), workspace_id: workspace_id.clone(), exp: expires.timestamp() as usize };
     let access_token = token(claims, &state.jwt_secret)
         .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create session."))?;
-    let user = User { id, full_name, email, role, status: "active".into(), created_at };
+    let user = User { id, full_name, email, role, status: "active".into(), workspace_id, created_at };
     Ok(Json(AuthResponse { access_token, token_type: "Bearer", expires_in: 8 * 60 * 60, user }))
 }
 
@@ -123,12 +132,12 @@ async fn require_auth(
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
     let claims = parse_claims(request.headers(), &state.jwt_secret)?;
     let current = sqlx::query_as::<_, (String, String, String)>(
-        "SELECT id, role, status FROM users WHERE id = ?"
+        "SELECT id, role, status, workspace_id FROM users WHERE id = ?"
     ).bind(&claims.sub).fetch_optional(&state.db).await
       .map_err(|e| { tracing::error!(error=%e, "auth lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Authentication is temporarily unavailable.") })?;
-    let Some((id, role, status)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
+    let Some((id, role, status, workspace_id)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
     if status != "active" { return Err(err(StatusCode::FORBIDDEN, "This account is disabled.")); }
-    let refreshed = Claims { sub: id, email: claims.email, role, exp: claims.exp };
+    let refreshed = Claims { sub: id, email: claims.email, role, workspace_id, exp: claims.exp };
     request.extensions_mut().insert(refreshed);
     Ok(next.run(request).await)
 }
@@ -139,12 +148,12 @@ pub async fn authorize_api(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
     let claims = parse_claims(request.headers(), &state.jwt_secret)?;
-    let current = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
+    let current = sqlx::query_as::<_, (String, String)>("SELECT role, status, workspace_id FROM users WHERE id = ?")
         .bind(&claims.sub).fetch_optional(&state.db).await
         .map_err(|e| { tracing::error!(error=%e, "authorization lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Authorization is temporarily unavailable.") })?;
-    let Some((current_role, status)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
+    let Some((current_role, status, workspace_id)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
     if status != "active" { return Err(err(StatusCode::FORBIDDEN, "This account is disabled.")); }
-    let claims = Claims { role: current_role, ..claims };
+    let claims = Claims { role: current_role, workspace_id, ..claims };
     let path = request.uri().path();
     let method = request.method().clone();
     let role = claims.role.as_str();
@@ -176,7 +185,7 @@ fn parse_claims(headers: &axum::http::HeaderMap, secret: &str) -> Result<Claims,
 }
 
 async fn me(State(state): State<AuthState>, Extension(claims): Extension<Claims>) -> AuthResult<User> {
-    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users WHERE id = ?")
+    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE id = ?")
         .bind(claims.sub).fetch_optional(&state.db).await.map_err(|e| {
             tracing::error!(error=%e, "profile query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load profile.")
         })?;
@@ -192,27 +201,28 @@ async fn update_profile(State(state): State<AuthState>, Extension(claims): Exten
 }
 
 async fn list_users(State(state): State<AuthState>, Extension(claims): Extension<Claims>) -> AuthResult<Vec<User>> {
-    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can manage platform accounts until workspace isolation is enabled.")); }
-    let users = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users ORDER BY created_at DESC")
-        .fetch_all(&state.db).await.map_err(|e| { tracing::error!(error=%e, "users query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not list users.") })?;
+    if !["super_admin", "workspace_admin"].contains(&claims.role.as_str()) { return Err(err(StatusCode::FORBIDDEN, "Your role cannot manage workspace accounts.")); }
+    let users = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE (? = 'super_admin' OR workspace_id = ?) ORDER BY created_at DESC")
+        .bind(&claims.role).bind(&claims.workspace_id).fetch_all(&state.db).await.map_err(|e| { tracing::error!(error=%e, "users query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not list users.") })?;
     Ok(Json(users))
 }
 
 async fn create_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, Json(input): Json<CreateUserInput>) -> AuthResult<User> {
-    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can provision accounts until workspace isolation is enabled.")); }
+    if !["super_admin", "workspace_admin"].contains(&claims.role.as_str()) { return Err(err(StatusCode::FORBIDDEN, "Your role cannot provision workspace accounts.")); }
     let name = input.full_name.trim();
     let email = input.email.trim().to_lowercase();
     if name.is_empty() || name.len() > 120 || !email.contains('@') || input.password.len() < 12 || input.password.len() > 72 {
         return Err(err(StatusCode::BAD_REQUEST, "Enter a valid name and email; passwords must be 12–72 bytes for bcrypt."));
     }
-    if !allowed_role(&input.role) && !(claims.role == "super_admin" && input.role == "super_admin") {
-        return Err(err(StatusCode::BAD_REQUEST, "Unsupported role."));
-    }
-    if claims.role != "super_admin" && input.role == "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only a Super Admin can grant the Super Admin role.")); }
+    if !allowed_role(&input.role) && !(claims.role == "super_admin" && input.role == "super_admin") { return Err(err(StatusCode::BAD_REQUEST, "Unsupported role.")); }
+    if claims.role != "super_admin" && !allowed_role(&input.role) { return Err(err(StatusCode::FORBIDDEN, "Workspace admins may only assign non-platform roles.")); }
+    let workspace_id = if claims.role == "super_admin" { if input.role == "super_admin" { None } else { input.workspace_id.clone() } } else { if input.role == "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Workspace admins cannot grant the Workspace Admin role.")); } claims.workspace_id.clone() };
+    if input.role != "super_admin" && workspace_id.is_none() { return Err(err(StatusCode::BAD_REQUEST, "Select a workspace for this account.")); }
+    if let Some(ref wid) = workspace_id { let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM workspaces WHERE id = ?").bind(wid).fetch_optional(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not validate workspace.") })?; if exists.is_none() { return Err(err(StatusCode::BAD_REQUEST, "Workspace not found.")); } }
     let password_hash = hash(&input.password, DEFAULT_COST).map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Could not secure the password."))?;
     let id = Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)")
-        .bind(&id).bind(name).bind(&email).bind(password_hash).bind(&input.role)
+    sqlx::query("INSERT INTO users (id, workspace_id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(&id).bind(&workspace_id).bind(name).bind(&email).bind(password_hash).bind(&input.role)
         .execute(&state.db).await.map_err(|e| {
             if e.to_string().contains("Duplicate") { err(StatusCode::CONFLICT, "An account with that email already exists.") }
             else { tracing::error!(error=%e, "user creation failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create user.") }
@@ -227,12 +237,14 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
 }
 
 async fn update_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, axum::extract::Path(id): axum::extract::Path<String>, Json(input): Json<UpdateRoleInput>) -> AuthResult<User> {
-    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can manage platform accounts until workspace isolation is enabled.")); }
+    if !["super_admin", "workspace_admin"].contains(&claims.role.as_str()) { return Err(err(StatusCode::FORBIDDEN, "Your role cannot manage workspace accounts.")); }
     if id == claims.sub && (input.status.as_deref() == Some("disabled") || input.role.is_some()) { return Err(err(StatusCode::BAD_REQUEST, "You cannot disable or change the role of your own account.")); }
     let target = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
         .bind(&id).fetch_optional(&state.db).await
         .map_err(|e| { tracing::error!(error=%e, "target user lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load target account.") })?;
-    let Some((old_role, old_status)) = target else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
+    let Some((old_role, old_status, old_workspace_id)) = target else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
+    if claims.role == "workspace_admin" && old_workspace_id != claims.workspace_id { return Err(err(StatusCode::NOT_FOUND, "User not found in your workspace.")); }
+    if claims.role == "workspace_admin" && old_role == "workspace_admin" { return Err(err(StatusCode::FORBIDDEN, "Workspace admins cannot modify another workspace admin.")); }
     let removes_last_active_admin =
         old_role == "super_admin"
         && old_status == "active"
