@@ -145,3 +145,10 @@
 .auth-role-guide-grid span{font-size:10px;line-height:1.5;color:#737b91}
 .auth-role-guide>.auth-muted{margin:12px 0 0}
 @media(max-width:650px){.auth-role-guide-grid{grid-template-columns:1fr}}
+
+
+/* Platform-only Super Admin landing */
+.platform-home{max-width:920px;margin:72px auto;padding:38px;border:1px solid #e5e8f2;border-radius:20px;background:linear-gradient(135deg,#fff 0%,#f8f7ff 100%);box-shadow:0 18px 55px #24265b0b}
+.platform-home h1{margin:12px 0;font-size:clamp(25px,4vw,38px);letter-spacing:-1px;color:#20243b}
+.platform-home p{max-width:650px;color:#737b91;font-size:14px;line-height:1.8;margin:0 0 24px}
+.platform-home .auth-submit{display:inline-flex;align-items:center;justify-content:center;gap:9px;width:auto;padding:12px 17px;border:0;border-radius:10px;background:#6354d9;color:white;cursor:pointer}
