@@ -148,7 +148,7 @@ pub async fn authorize_api(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<ErrorBody>)> {
     let claims = parse_claims(request.headers(), &state.jwt_secret)?;
-    let current = sqlx::query_as::<_, (String, String)>("SELECT role, status, workspace_id FROM users WHERE id = ?")
+    let current = sqlx::query_as::<_, (String, String, Option<String>)>("SELECT role, status, workspace_id FROM users WHERE id = ?")
         .bind(&claims.sub).fetch_optional(&state.db).await
         .map_err(|e| { tracing::error!(error=%e, "authorization lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Authorization is temporarily unavailable.") })?;
     let Some((current_role, status, workspace_id)) = current else { return Err(err(StatusCode::UNAUTHORIZED, "Session is no longer valid.")); };
@@ -227,7 +227,7 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
             if e.to_string().contains("Duplicate") { err(StatusCode::CONFLICT, "An account with that email already exists.") }
             else { tracing::error!(error=%e, "user creation failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create user.") }
         })?;
-    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users WHERE id = ?")
+    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE id = ?")
         .bind(&id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "created user query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "User created but could not be loaded.") })?;
     let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.created', 'user', ?, ?)")
         .bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id)
@@ -239,7 +239,7 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
 async fn update_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, axum::extract::Path(id): axum::extract::Path<String>, Json(input): Json<UpdateRoleInput>) -> AuthResult<User> {
     if !["super_admin", "workspace_admin"].contains(&claims.role.as_str()) { return Err(err(StatusCode::FORBIDDEN, "Your role cannot manage workspace accounts.")); }
     if id == claims.sub && (input.status.as_deref() == Some("disabled") || input.role.is_some()) { return Err(err(StatusCode::BAD_REQUEST, "You cannot disable or change the role of your own account.")); }
-    let target = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
+    let target = sqlx::query_as::<_, (String, String, Option<String>)>("SELECT role, status, workspace_id FROM users WHERE id = ?")
         .bind(&id).fetch_optional(&state.db).await
         .map_err(|e| { tracing::error!(error=%e, "target user lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load target account.") })?;
     let Some((old_role, old_status, old_workspace_id)) = target else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
@@ -269,7 +269,7 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
         sqlx::query("UPDATE users SET status = ? WHERE id = ?").bind(status).bind(&id).execute(&state.db).await
             .map_err(|e| { tracing::error!(error=%e, "status update failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not update account status.") })?;
     }
-    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users WHERE id = ?")
+    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE id = ?")
         .bind(&id).fetch_optional(&state.db).await.map_err(|e| { tracing::error!(error=%e, "user fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load user.") })?;
     let Some(user) = user else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
     if old_role != user.role || old_status != user.status {
@@ -279,6 +279,27 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
             .execute(&state.db).await;
     }
     Ok(Json(user))
+}
+
+async fn list_workspaces(State(state): State<AuthState>, Extension(claims): Extension<Claims>) -> AuthResult<Vec<Workspace>> {
+    if claims.role == "super_admin" {
+        let rows = sqlx::query_as::<_, Workspace>("SELECT id, name, created_at FROM workspaces ORDER BY created_at DESC").fetch_all(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace list failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not list workspaces.") })?;
+        return Ok(Json(rows));
+    }
+    let Some(workspace_id) = claims.workspace_id else { return Err(err(StatusCode::FORBIDDEN, "This account is not assigned to a workspace.")); };
+    let rows = sqlx::query_as::<_, Workspace>("SELECT id, name, created_at FROM workspaces WHERE id = ?").bind(workspace_id).fetch_all(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace list failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load workspace.") })?;
+    Ok(Json(rows))
+}
+
+async fn create_workspace(State(state): State<AuthState>, Extension(claims): Extension<Claims>, Json(input): Json<CreateWorkspaceInput>) -> AuthResult<Workspace> {
+    if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can create workspaces.")); }
+    let name = input.name.trim();
+    if name.is_empty() || name.len() > 120 { return Err(err(StatusCode::BAD_REQUEST, "Workspace name must be between 1 and 120 characters.")); }
+    let id = Uuid::new_v4().to_string();
+    sqlx::query("INSERT INTO workspaces (id, name, created_by) VALUES (?, ?, ?)").bind(&id).bind(name).bind(&claims.sub).execute(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace create failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create workspace.") })?;
+    let workspace = sqlx::query_as::<_, Workspace>("SELECT id, name, created_at FROM workspaces WHERE id = ?").bind(&id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Workspace created but could not be loaded.") })?;
+    let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'workspace.created', 'workspace', ?, ?)").bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id).bind(serde_json::json!({"name": name})).execute(&state.db).await;
+    Ok(Json(workspace))
 }
 
 pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(), Box<dyn std::error::Error>> {
