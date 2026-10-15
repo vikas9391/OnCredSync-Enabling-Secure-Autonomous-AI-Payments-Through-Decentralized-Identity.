@@ -127,15 +127,17 @@ async fn health(State(state): State<AppState>) -> Json<Value> {
     }))
 }
 
-async fn list_agents(State(state): State<AppState>) -> ApiResult<Vec<Agent>> {
+async fn list_agents(State(state): State<AppState>, Extension(claims): Extension<auth::Claims>) -> ApiResult<Vec<Agent>> {
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let rows = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents ORDER BY created_at DESC"
-    ).fetch_all(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE workspace_id = ? ORDER BY created_at DESC"
+    ).bind(workspace_id).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
 
 async fn create_agent(
     State(state): State<AppState>,
+    Extension(claims): Extension<auth::Claims>,
     Json(input): Json<CreateAgent>,
 ) -> ApiResult<Agent> {
     let name = input.name.trim();
@@ -144,19 +146,20 @@ async fn create_agent(
         return Err(api_error(StatusCode::BAD_REQUEST, "Name and owner are required and must be within the allowed length."));
     }
 
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let id = Uuid::new_v4().to_string();
     // This is an application identifier, not a cryptographically verified DID.
     let did = format!("did:oncredsync:{id}");
     let network = input.network.unwrap_or_else(|| "Base Sepolia".to_string());
     sqlx::query(
-        "INSERT INTO agents (id, name, owner, did, wallet_address, network) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO agents (id, workspace_id, name, owner, did, wallet_address, network) VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
-    .bind(&id).bind(name).bind(owner).bind(&did).bind(input.wallet_address).bind(network)
+    .bind(&id).bind(workspace_id).bind(name).bind(owner).bind(&did).bind(input.wallet_address).bind(network)
     .execute(&state.db).await.map_err(internal_error)?;
 
     let row = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
-    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ? AND workspace_id = ?"
+    ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
 
     let _ = sqlx::query(
         "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'agent.created', 'agent', ?, ?)"
@@ -170,6 +173,7 @@ async fn create_agent(
 async fn update_agent_status(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    Extension(claims): Extension<auth::Claims>,
     Json(input): Json<UpdateAgentStatus>,
 ) -> ApiResult<Agent> {
     if !valid_uuid(&id) {
@@ -179,11 +183,12 @@ async fn update_agent_status(
     if !["active", "paused", "revoked"].contains(&status.as_str()) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Status must be active, paused, or revoked."));
     }
-    let result = sqlx::query("UPDATE agents SET status = ? WHERE id = ?")
-        .bind(&status).bind(&id).execute(&state.db).await.map_err(internal_error)?;
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
+    let result = sqlx::query("UPDATE agents SET status = ? WHERE id = ? AND workspace_id = ?")
+        .bind(&status).bind(&id).bind(workspace_id).execute(&state.db).await.map_err(internal_error)?;
     if result.rows_affected() == 0 {
-        let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ?")
-            .bind(&id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ? AND workspace_id = ?")
+            .bind(&id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
         if exists.is_none() {
             return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
         }
@@ -201,24 +206,27 @@ async fn update_agent_status(
 async fn list_policies(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
+    Extension(claims): Extension<auth::Claims>,
 ) -> ApiResult<Vec<Policy>> {
     if !valid_uuid(&agent_id) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
     }
     let rows = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? ORDER BY created_at DESC"
-    ).bind(agent_id).fetch_all(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND workspace_id = ? ORDER BY created_at DESC"
+    ).bind(agent_id).bind(claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
 
 async fn create_policy(
     State(state): State<AppState>,
     Path(agent_id): Path<String>,
+    Extension(claims): Extension<auth::Claims>,
     Json(input): Json<CreatePolicy>,
 ) -> ApiResult<Policy> {
     if !valid_uuid(&agent_id) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Agent id must be a UUID."));
     }
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let transaction_limit_wei = input.transaction_limit_wei.parse::<u128>().ok();
     let daily_limit_wei = input.daily_limit_wei.parse::<u128>().ok();
     if transaction_limit_wei.is_none_or(|v| v == 0) || daily_limit_wei.is_none_or(|v| v == 0) {
@@ -227,8 +235,8 @@ async fn create_policy(
     if input.approved_merchants.is_empty() {
         return Err(api_error(StatusCode::BAD_REQUEST, "At least one approved merchant is required."));
     }
-    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ?")
-        .bind(&agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+    let exists: Option<(String,)> = sqlx::query_as("SELECT id FROM agents WHERE id = ? AND workspace_id = ?")
+        .bind(&agent_id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
     if exists.is_none() {
         return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
     }
@@ -241,15 +249,15 @@ async fn create_policy(
     let id = Uuid::new_v4().to_string();
     let name = input.name.unwrap_or_else(|| "Default policy".to_string());
     sqlx::query(
-        "INSERT INTO spending_policies (id, agent_id, name, transaction_limit_wei, daily_limit_wei, approved_merchants, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    ).bind(&id).bind(&agent_id).bind(name.trim())
+        "INSERT INTO spending_policies (id, workspace_id, agent_id, name, transaction_limit_wei, daily_limit_wei, approved_merchants, valid_until) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(&id).bind(workspace_id).bind(&agent_id).bind(name.trim())
      .bind(input.transaction_limit_wei.trim()).bind(input.daily_limit_wei.trim())
      .bind(json!(merchants)).bind(input.valid_until)
      .execute(&state.db).await.map_err(internal_error)?;
 
     let row = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ?"
-    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ? AND workspace_id = ?"
+    ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
     let _ = sqlx::query(
         "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'policy.created', 'policy', ?, ?)"
     ).bind(Uuid::new_v4().to_string()).bind(&row.id)
@@ -258,20 +266,23 @@ async fn create_policy(
     Ok(Json(row))
 }
 
-async fn list_payments(State(state): State<AppState>) -> ApiResult<Vec<Payment>> {
+async fn list_payments(State(state): State<AppState>, Extension(claims): Extension<auth::Claims>) -> ApiResult<Vec<Payment>> {
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let rows = sqlx::query_as::<_, Payment>(
-        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments ORDER BY created_at DESC LIMIT 200"
-    ).fetch_all(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 200"
+    ).bind(workspace_id).fetch_all(&state.db).await.map_err(internal_error)?;
     Ok(Json(rows))
 }
 
 async fn create_payment(
     State(state): State<AppState>,
+    Extension(claims): Extension<auth::Claims>,
     Json(input): Json<CreatePayment>,
 ) -> ApiResult<Payment> {
     if !valid_uuid(&input.agent_id) {
         return Err(api_error(StatusCode::BAD_REQUEST, "agent_id must be a UUID."));
     }
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let merchant = input.merchant.trim().to_lowercase();
     let purpose = input.purpose.unwrap_or_default();
     let amount_wei = input.amount_wei.parse::<u128>().ok();
@@ -280,15 +291,15 @@ async fn create_payment(
     }
 
     let agent = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
-    ).bind(&input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ? AND workspace_id = ?"
+    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
     let Some(agent) = agent else {
         return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
     };
 
     let policy = sqlx::query_as::<_, Policy>(
-        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
-    ).bind(&input.agent_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND workspace_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
+    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
 
     let mut rejection: Option<String> = None;
     if agent.status != "active" {
@@ -304,8 +315,8 @@ async fn create_payment(
             let now = Utc::now();
             let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
             let daily_spend: (String,) = sqlx::query_as(
-                "SELECT CAST(COALESCE(SUM(amount_wei), 0) AS CHAR) FROM payments WHERE agent_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
-            ).bind(&input.agent_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
+                "SELECT CAST(COALESCE(SUM(amount_wei), 0) AS CHAR) FROM payments WHERE agent_id = ? AND workspace_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
+            ).bind(&input.agent_id).bind(workspace_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
             let spent_wei = daily_spend.0.parse::<u128>().unwrap_or(u128::MAX);
             if spent_wei.saturating_add(amount_wei.unwrap()) > policy.daily_limit_wei.parse::<u128>().unwrap_or(0) {
                 rejection = Some("Payment would exceed the daily spending limit.".to_string());
@@ -319,13 +330,13 @@ async fn create_payment(
     let status = if rejection.is_some() { "rejected" } else { "pending" };
     let id = Uuid::new_v4().to_string();
     sqlx::query(
-        "INSERT INTO payments (id, agent_id, merchant, purpose, amount_wei, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, 'demo')"
-    ).bind(&id).bind(&input.agent_id).bind(&merchant).bind(&purpose)
+        "INSERT INTO payments (id, workspace_id, agent_id, merchant, purpose, amount_wei, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'demo')"
+    ).bind(&id).bind(workspace_id).bind(&input.agent_id).bind(&merchant).bind(&purpose)
      .bind(input.amount_wei.trim()).bind(status).bind(rejection.clone())
      .execute(&state.db).await.map_err(internal_error)?;
     let row = sqlx::query_as::<_, Payment>(
-        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ?"
-    ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
+        "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ? AND workspace_id = ?"
+    ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
 
     let _ = sqlx::query(
         "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'payment', ?, ?)"
@@ -337,10 +348,11 @@ async fn create_payment(
     Ok(Json(row))
 }
 
-async fn list_audit_events(State(state): State<AppState>) -> ApiResult<Vec<Value>> {
+async fn list_audit_events(State(state): State<AppState>, Extension(claims): Extension<auth::Claims>) -> ApiResult<Vec<Value>> {
+    let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let rows = sqlx::query_as::<_, (String, String, String, Option<String>, Value, DateTime<Utc>)>(
-        "SELECT id, event_type, resource_type, resource_id, details, created_at FROM audit_events ORDER BY created_at DESC LIMIT 200"
-    ).fetch_all(&state.db).await.map_err(internal_error)?;
+        "SELECT id, event_type, resource_type, resource_id, details, created_at FROM audit_events WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 200"
+    ).bind(workspace_id).fetch_all(&state.db).await.map_err(internal_error)?;
     let events = rows.into_iter().map(|(id, event_type, resource_type, resource_id, details, created_at)| {
         json!({"id": id, "event_type": event_type, "resource_type": resource_type, "resource_id": resource_id, "details": details, "created_at": created_at})
     }).collect::<Vec<_>>();
