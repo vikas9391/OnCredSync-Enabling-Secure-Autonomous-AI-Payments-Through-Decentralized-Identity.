@@ -54,6 +54,8 @@ export const authApi = {
   me: () => request<AuthUser>("/api/v1/auth/me"),
   updateProfile: (full_name: string) => request<AuthUser>("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ full_name }) }),
   users: () => request<AuthUser[]>("/api/v1/auth/users"),
-  createUser: (body: { full_name: string; email: string; password: string; role: UserRole }) => request<AuthUser>("/api/v1/auth/users", { method: "POST", body: JSON.stringify(body) }),
+  workspaces: () => request<ApiWorkspace[]>("/api/v1/auth/workspaces"),
+  createWorkspace: (name: string) => request<ApiWorkspace>("/api/v1/auth/workspaces", { method: "POST", body: JSON.stringify({ name }) }),
+  createUser: (body: { full_name: string; email: string; password: string; role: UserRole; workspace_id?: string }) => request<AuthUser>("/api/v1/auth/users", { method: "POST", body: JSON.stringify(body) }),
   updateUser: (id: string, body: { role?: UserRole; status?: "active" | "disabled" }) => request<AuthUser>(`/api/v1/auth/users/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(body) }),
 };
