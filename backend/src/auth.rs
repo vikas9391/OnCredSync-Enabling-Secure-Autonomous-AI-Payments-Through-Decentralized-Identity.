@@ -11,6 +11,7 @@ use bcrypt::{hash, verify, DEFAULT_COST};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::{FromRow, MySqlPool};
 use std::env;
 use uuid::Uuid;
@@ -217,13 +218,34 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
             else { tracing::error!(error=%e, "user creation failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create user.") }
         })?;
     let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users WHERE id = ?")
-        .bind(id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "created user query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "User created but could not be loaded.") })?;
+        .bind(&id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "created user query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "User created but could not be loaded.") })?;
+    let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.created', 'user', ?, ?)")
+        .bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id)
+        .bind(json!({"email": user.email, "role": user.role, "status": user.status}))
+        .execute(&state.db).await;
     Ok(Json(user))
 }
 
 async fn update_user(State(state): State<AuthState>, Extension(claims): Extension<Claims>, axum::extract::Path(id): axum::extract::Path<String>, Json(input): Json<UpdateRoleInput>) -> AuthResult<User> {
     if claims.role != "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only the Super Admin can manage platform accounts until workspace isolation is enabled.")); }
     if id == claims.sub && (input.status.as_deref() == Some("disabled") || input.role.is_some()) { return Err(err(StatusCode::BAD_REQUEST, "You cannot disable or change the role of your own account.")); }
+    let target = sqlx::query_as::<_, (String, String)>("SELECT role, status FROM users WHERE id = ?")
+        .bind(&id).fetch_optional(&state.db).await
+        .map_err(|e| { tracing::error!(error=%e, "target user lookup failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load target account.") })?;
+    let Some((old_role, old_status)) = target else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
+    let removes_last_active_admin =
+        old_role == "super_admin"
+        && old_status == "active"
+        && (input.role.as_deref().is_some_and(|role| role != "super_admin")
+            || input.status.as_deref() == Some("disabled"));
+    if removes_last_active_admin {
+        let active_admins: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM users WHERE role = 'super_admin' AND status = 'active'")
+            .fetch_one(&state.db).await
+            .map_err(|e| { tracing::error!(error=%e, "super admin count failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not verify administrator safety.") })?;
+        if active_admins.0 <= 1 {
+            return Err(err(StatusCode::CONFLICT, "The last active Super Admin cannot be demoted or disabled. Promote another active Super Admin first."));
+        }
+    }
     if let Some(role) = input.role.as_deref() {
         if !allowed_role(role) && !(claims.role == "super_admin" && role == "super_admin") { return Err(err(StatusCode::BAD_REQUEST, "Unsupported role.")); }
         if claims.role != "super_admin" && role == "super_admin" { return Err(err(StatusCode::FORBIDDEN, "Only a Super Admin can grant the Super Admin role.")); }
@@ -236,8 +258,15 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
             .map_err(|e| { tracing::error!(error=%e, "status update failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not update account status.") })?;
     }
     let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, created_at FROM users WHERE id = ?")
-        .bind(id).fetch_optional(&state.db).await.map_err(|e| { tracing::error!(error=%e, "user fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load user.") })?;
-    user.map(Json).ok_or_else(|| err(StatusCode::NOT_FOUND, "User not found."))
+        .bind(&id).fetch_optional(&state.db).await.map_err(|e| { tracing::error!(error=%e, "user fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load user.") })?;
+    let Some(user) = user else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
+    if old_role != user.role || old_status != user.status {
+        let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.access_updated', 'user', ?, ?)")
+            .bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id)
+            .bind(json!({"old_role": old_role, "new_role": user.role, "old_status": old_status, "new_status": user.status}))
+            .execute(&state.db).await;
+    }
+    Ok(Json(user))
 }
 
 pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(), Box<dyn std::error::Error>> {
