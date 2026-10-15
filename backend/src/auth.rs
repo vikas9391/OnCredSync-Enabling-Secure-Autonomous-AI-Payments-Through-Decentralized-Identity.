@@ -229,8 +229,8 @@ async fn create_user(State(state): State<AuthState>, Extension(claims): Extensio
         })?;
     let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE id = ?")
         .bind(&id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "created user query failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "User created but could not be loaded.") })?;
-    let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.created', 'user', ?, ?)")
-        .bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id)
+    let _ = sqlx::query("INSERT INTO audit_events (id, workspace_id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, ?, 'user.created', 'user', ?, ?)")
+         .bind(Uuid::new_v4().to_string()).bind(&user.workspace_id).bind(&claims.sub).bind(&id)
         .bind(json!({"email": user.email, "role": user.role, "status": user.status}))
         .execute(&state.db).await;
     Ok(Json(user))
@@ -273,8 +273,8 @@ async fn update_user(State(state): State<AuthState>, Extension(claims): Extensio
         .bind(&id).fetch_optional(&state.db).await.map_err(|e| { tracing::error!(error=%e, "user fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not load user.") })?;
     let Some(user) = user else { return Err(err(StatusCode::NOT_FOUND, "User not found.")); };
     if old_role != user.role || old_status != user.status {
-        let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.access_updated', 'user', ?, ?)")
-            .bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id)
+        let _ = sqlx::query("INSERT INTO audit_events (id, workspace_id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, ?, 'user.access_updated', 'user', ?, ?)")
+             .bind(Uuid::new_v4().to_string()).bind(&user.workspace_id).bind(&claims.sub).bind(&id)
             .bind(json!({"old_role": old_role, "new_role": user.role, "old_status": old_status, "new_status": user.status}))
             .execute(&state.db).await;
     }
