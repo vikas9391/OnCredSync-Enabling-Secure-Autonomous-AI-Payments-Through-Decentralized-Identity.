@@ -57,8 +57,8 @@ Open `http://localhost:5173`. Configure the frontend API base URL with `VITE_API
 The API now requires a signed Bearer token for business endpoints. Passwords are bcrypt-hashed in MySQL, access tokens expire after eight hours, disabled accounts are rejected, and role permissions are checked on the server (not only hidden in the UI). The frontend has a sign-in screen, profile editor, and Super Admin account-management panel. There is no public sign-up endpoint.
 
 Available roles:
-- **Super Admin** — platform-level account and role administration plus full business API access.
-- **Workspace Admin** — full business API access; platform account management remains Super Admin-only until workspace isolation is enabled.
+- **Super Admin** — platform-level workspace and account administration; has no implicit tenant-data access.
+- **Workspace Admin** — full business API access and account management within the assigned workspace.
 - **Finance / Payments Manager** — read agents, policies, payments, and audit events; submit simulated payment requests.
 - **Developer / Agent Operator** — read business data; create agents and policies, submit simulated payments, and update agent status.
 - **Read-only Viewer** — GET-only access to business endpoints.
