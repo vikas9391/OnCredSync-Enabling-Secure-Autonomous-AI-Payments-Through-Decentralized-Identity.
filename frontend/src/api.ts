@@ -47,7 +47,8 @@ export const api = {
 };
 
 export type UserRole = "super_admin" | "workspace_admin" | "finance_manager" | "agent_operator" | "viewer";
-export interface AuthUser { id: string; full_name: string; email: string; role: UserRole; status: "active" | "disabled"; created_at: string; }
+export interface AuthUser { id: string; full_name: string; email: string; role: UserRole; status: "active" | "disabled"; workspace_id: string | null; created_at: string; }
+export interface ApiWorkspace { id: string; name: string; created_at: string; }
 export const authApi = {
   login: (email: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   me: () => request<AuthUser>("/api/v1/auth/me"),
