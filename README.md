@@ -57,11 +57,13 @@ Open `http://localhost:5173`. Configure the frontend API base URL with `VITE_API
 The API now requires a signed Bearer token for business endpoints. Passwords are bcrypt-hashed in MySQL, access tokens expire after eight hours, disabled accounts are rejected, and role permissions are checked on the server (not only hidden in the UI). The frontend has a sign-in screen, profile editor, and Super Admin account-management panel. There is no public sign-up endpoint.
 
 Available roles:
-- **Super Admin** — platform-level account and role administration plus business API access.
-- **Workspace Admin** — broad workspace operations.
-- **Finance / Payments Manager** — payment and policy reads plus payment simulation requests.
-- **Developer / Agent Operator** — agent operations and payment simulation within the API permission matrix.
-- **Read-only Viewer** — GET-only access.
+- **Super Admin** — platform-level account and role administration plus full business API access.
+- **Workspace Admin** — full business API access; platform account management remains Super Admin-only until workspace isolation is enabled.
+- **Finance / Payments Manager** — read agents, policies, payments, and audit events; submit simulated payment requests.
+- **Developer / Agent Operator** — read business data; create agents and policies, submit simulated payments, and update agent status.
+- **Read-only Viewer** — GET-only access to business endpoints.
+
+The Super Admin user-management panel shows this permission guide and supports account creation, role assignment, and account enable/disable. The backend prevents demoting or disabling the last active Super Admin and writes account creation/access-change events to the audit log.
 
 **Important current boundary:** this is still a single shared workspace prototype. Workspace membership and per-workspace row isolation have not yet been implemented, so do not create accounts for mutually untrusted organizations or expose this deployment to the public internet. Until workspace isolation is complete, only Super Admins can provision/manage accounts. Password reset, forced password change, refresh/revocation tokens, MFA, and security review are also outstanding. Payment requests remain demo decisions; no real funds move.
 
