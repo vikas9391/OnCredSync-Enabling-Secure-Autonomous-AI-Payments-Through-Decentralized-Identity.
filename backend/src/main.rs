@@ -162,9 +162,9 @@ async fn create_agent(
     ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
 
     let _ = sqlx::query(
-        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'agent.created', 'agent', ?, ?)"
+        "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'agent.created', 'agent', ?, ?)"
     )
-    .bind(Uuid::new_v4().to_string()).bind(&row.id)
+    .bind(Uuid::new_v4().to_string()).bind(workspace_id).bind(&row.id)
     .bind(json!({"name": row.name, "owner": row.owner}))
     .execute(&state.db).await;
     Ok(Json(row))
@@ -197,8 +197,8 @@ async fn update_agent_status(
         "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ?"
     ).bind(&id).fetch_one(&state.db).await.map_err(internal_error)?;
     let _ = sqlx::query(
-        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'agent.status_changed', 'agent', ?, ?)"
-    ).bind(Uuid::new_v4().to_string()).bind(&id).bind(json!({"status": status}))
+        "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'agent.status_changed', 'agent', ?, ?)"
+    ).bind(Uuid::new_v4().to_string()).bind(workspace_id).bind(&id).bind(json!({"status": status}))
      .execute(&state.db).await;
     Ok(Json(row))
 }
@@ -259,8 +259,8 @@ async fn create_policy(
         "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE id = ? AND workspace_id = ?"
     ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
     let _ = sqlx::query(
-        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, 'policy.created', 'policy', ?, ?)"
-    ).bind(Uuid::new_v4().to_string()).bind(&row.id)
+        "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'policy.created', 'policy', ?, ?)"
+    ).bind(Uuid::new_v4().to_string()).bind(workspace_id).bind(&row.id)
      .bind(json!({"agent_id": agent_id, "name": row.name}))
      .execute(&state.db).await;
     Ok(Json(row))
@@ -339,8 +339,8 @@ async fn create_payment(
     ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
 
     let _ = sqlx::query(
-        "INSERT INTO audit_events (id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'payment', ?, ?)"
-    ).bind(Uuid::new_v4().to_string())
+        "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, ?, 'payment', ?, ?)"
+    ).bind(Uuid::new_v4().to_string()).bind(workspace_id)
      .bind(if rejection.is_some() { "payment.rejected" } else { "payment.pending" })
      .bind(&row.id)
      .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_wei": row.amount_wei, "reason": rejection}))
