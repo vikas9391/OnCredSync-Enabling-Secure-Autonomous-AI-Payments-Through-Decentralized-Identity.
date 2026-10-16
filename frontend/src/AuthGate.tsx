@@ -72,7 +72,7 @@ export default function AuthGate() {
   const addUser = async (e: FormEvent) => {
     e.preventDefault(); setNotice("");
     try {
-      const created = await authApi.createUser({ full_name: newName, email: newEmail, password: newPassword, role: newRole, ...(user.role === "super_admin" && newRole !== "super_admin" ? { workspace_id: selectedWorkspace } : {}) });
+      const created = await authApi.createUser({ full_name: newName, email: newEmail, password: newPassword, role: newRole, ...(user?.role === "super_admin" && newRole !== "super_admin" ? { workspace_id: selectedWorkspace } : {}) });
       setUsers(current => [created, ...current]); setNewName(""); setNewEmail(""); setNewPassword(""); setNewRole("viewer"); setNotice("Account created for " + (workspaces.find(w => w.id === created.workspace_id)?.name ?? "the selected workspace") + ". Share credentials securely.");
     } catch (e) { setNotice(e instanceof Error ? e.message : "Could not create user."); }
   };
