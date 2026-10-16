@@ -305,7 +305,7 @@ async fn create_workspace(State(state): State<AuthState>, Extension(claims): Ext
     let id = Uuid::new_v4().to_string();
     sqlx::query("INSERT INTO workspaces (id, name, created_by) VALUES (?, ?, ?)").bind(&id).bind(name).bind(&claims.sub).execute(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace create failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create workspace.") })?;
     let workspace = sqlx::query_as::<_, Workspace>("SELECT id, name, created_at FROM workspaces WHERE id = ?").bind(&id).fetch_one(&state.db).await.map_err(|e| { tracing::error!(error=%e, "workspace fetch failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Workspace created but could not be loaded.") })?;
-    let _ = sqlx::query("INSERT INTO audit_events (id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, 'workspace.created', 'workspace', ?, ?)").bind(Uuid::new_v4().to_string()).bind(&claims.sub).bind(&id).bind(serde_json::json!({"name": name})).execute(&state.db).await;
+    let _ = sqlx::query("INSERT INTO audit_events (id, workspace_id, actor, event_type, resource_type, resource_id, details) VALUES (?, ?, ?, 'workspace.created', 'workspace', ?, ?)").bind(Uuid::new_v4().to_string()).bind(&id).bind(&claims.sub).bind(&id).bind(serde_json::json!({"name": name})).execute(&state.db).await;
     Ok(Json(workspace))
 }
 
