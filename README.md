@@ -97,4 +97,4 @@ npm run build
 cd ../backend
 cargo check
 ```
-Next milestones: add isolated API/integration tests, enforce spending limits atomically under concurrent requests, add authentication and authorization, and conduct a security review before integrating any real payment rail. Real ETH support would additionally require wallet connection, transaction signing, RPC integration, chain/receipt verification, and explicit testnet-only transaction handling.
+Next milestones: expand cross-workspace API integration tests (including unauthorized read/update attempts), enforce spending limits atomically under concurrent requests, make audit writes reliable, and conduct an independent security review before integrating any real payment rail. Real ETH support would additionally require wallet connection, transaction signing, RPC integration, chain/receipt verification, and explicit testnet-only transaction handling.
