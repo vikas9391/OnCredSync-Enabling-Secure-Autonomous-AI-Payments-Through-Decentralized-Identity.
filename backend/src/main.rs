@@ -285,21 +285,25 @@ async fn create_payment(
     let workspace_id = claims.workspace_id.as_deref().ok_or_else(|| api_error(StatusCode::FORBIDDEN, "A workspace is required."))?;
     let merchant = input.merchant.trim().to_lowercase();
     let purpose = input.purpose.unwrap_or_default();
-    let amount_wei = input.amount_wei.parse::<u128>().ok();
+    let amount_wei = input.amount_wei.trim().parse::<u128>().ok();
     if merchant.is_empty() || merchant.len() > 200 || amount_wei.is_none_or(|v| v == 0) {
         return Err(api_error(StatusCode::BAD_REQUEST, "Merchant is required and amount_wei must be a positive integer string."));
     }
+    let amount_wei = amount_wei.expect("validated amount");
 
+    // Serialize decisions for a given agent. Locking the agent row prevents two
+    // concurrent requests from both observing the same remaining daily allowance.
+    let mut tx = state.db.begin().await.map_err(internal_error)?;
     let agent = sqlx::query_as::<_, Agent>(
-        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ? AND workspace_id = ?"
-    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+        "SELECT id, name, owner, did, wallet_address, network, status, created_at, updated_at FROM agents WHERE id = ? AND workspace_id = ? FOR UPDATE"
+    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&mut *tx).await.map_err(internal_error)?;
     let Some(agent) = agent else {
         return Err(api_error(StatusCode::NOT_FOUND, "Agent not found."));
     };
 
     let policy = sqlx::query_as::<_, Policy>(
         "SELECT id, agent_id, name, CAST(transaction_limit_wei AS CHAR) AS transaction_limit_wei, CAST(daily_limit_wei AS CHAR) AS daily_limit_wei, approved_merchants, valid_until, revoked, created_at, updated_at FROM spending_policies WHERE agent_id = ? AND workspace_id = ? AND revoked = FALSE ORDER BY created_at DESC LIMIT 1"
-    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&state.db).await.map_err(internal_error)?;
+    ).bind(&input.agent_id).bind(workspace_id).fetch_optional(&mut *tx).await.map_err(internal_error)?;
 
     let mut rejection: Option<String> = None;
     if agent.status != "active" {
@@ -307,7 +311,7 @@ async fn create_payment(
     } else if let Some(ref policy) = policy {
         if policy.valid_until.is_some_and(|expiry| expiry <= Utc::now()) {
             rejection = Some("Spending policy has expired.".to_string());
-        } else if amount_wei.unwrap() > policy.transaction_limit_wei.parse::<u128>().unwrap_or(0) {
+        } else if amount_wei > policy.transaction_limit_wei.parse::<u128>().unwrap_or(0) {
             rejection = Some("Payment exceeds the per-transaction limit.".to_string());
         } else if !merchant_list(&policy.approved_merchants).iter().any(|m| m.eq_ignore_ascii_case(&merchant)) {
             rejection = Some("Merchant is not on the approved allowlist.".to_string());
@@ -316,9 +320,9 @@ async fn create_payment(
             let midnight = now.date_naive().and_time(NaiveTime::MIN).and_utc();
             let daily_spend: (String,) = sqlx::query_as(
                 "SELECT CAST(COALESCE(SUM(amount_wei), 0) AS CHAR) FROM payments WHERE agent_id = ? AND workspace_id = ? AND status IN ('settled', 'pending') AND created_at >= ?"
-            ).bind(&input.agent_id).bind(workspace_id).bind(midnight).fetch_one(&state.db).await.map_err(internal_error)?;
+            ).bind(&input.agent_id).bind(workspace_id).bind(midnight).fetch_one(&mut *tx).await.map_err(internal_error)?;
             let spent_wei = daily_spend.0.parse::<u128>().unwrap_or(u128::MAX);
-            if spent_wei.saturating_add(amount_wei.unwrap()) > policy.daily_limit_wei.parse::<u128>().unwrap_or(0) {
+            if spent_wei.saturating_add(amount_wei) > policy.daily_limit_wei.parse::<u128>().unwrap_or(0) {
                 rejection = Some("Payment would exceed the daily spending limit.".to_string());
             }
         }
@@ -326,25 +330,30 @@ async fn create_payment(
         rejection = Some("No active spending policy is configured for this agent.".to_string());
     }
 
-    // Demo mode records a decision only; it does not transfer funds or settle an x402 payment.
+    // Demo mode records a decision only; it does not transfer funds or settle x402.
     let status = if rejection.is_some() { "rejected" } else { "pending" };
     let id = Uuid::new_v4().to_string();
     sqlx::query(
         "INSERT INTO payments (id, workspace_id, agent_id, merchant, purpose, amount_wei, status, rejection_reason, protocol) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'demo')"
     ).bind(&id).bind(workspace_id).bind(&input.agent_id).bind(&merchant).bind(&purpose)
-     .bind(input.amount_wei.trim()).bind(status).bind(rejection.clone())
-     .execute(&state.db).await.map_err(internal_error)?;
+     .bind(amount_wei.to_string()).bind(status).bind(rejection.clone())
+     .execute(&mut *tx).await.map_err(internal_error)?;
+
     let row = sqlx::query_as::<_, Payment>(
         "SELECT id, agent_id, merchant, purpose, CAST(amount_wei AS CHAR) AS amount_wei, status, rejection_reason, protocol, tx_hash, created_at FROM payments WHERE id = ? AND workspace_id = ?"
-    ).bind(&id).bind(workspace_id).fetch_one(&state.db).await.map_err(internal_error)?;
+    ).bind(&id).bind(workspace_id).fetch_one(&mut *tx).await.map_err(internal_error)?;
 
-    let _ = sqlx::query(
+    // Keep the audit record atomic with the payment decision. A failed audit write
+    // rolls the transaction back rather than silently losing the security trail.
+    sqlx::query(
         "INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, ?, 'payment', ?, ?)"
     ).bind(Uuid::new_v4().to_string()).bind(workspace_id)
      .bind(if rejection.is_some() { "payment.rejected" } else { "payment.pending" })
      .bind(&row.id)
      .bind(json!({"agent_id": row.agent_id, "merchant": row.merchant, "amount_wei": row.amount_wei, "reason": rejection}))
-     .execute(&state.db).await;
+     .execute(&mut *tx).await.map_err(internal_error)?;
+
+    tx.commit().await.map_err(internal_error)?;
     Ok(Json(row))
 }
 
