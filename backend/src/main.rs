@@ -489,8 +489,10 @@ mod tests {
             workspace_id: Some(workspace_a.clone()),
             exp: usize::MAX,
         };
-        let listed = list_agents(State(AppState { db: db.clone() }), Extension(claims.clone()))
-            .await.expect("list agents for tenant A").0;
+        let listed = match list_agents(State(AppState { db: db.clone() }), Extension(claims.clone())).await {
+            Ok(Json(rows)) => rows,
+            Err((status, _)) => panic!("list agents for tenant A failed with {status}"),
+        };
         assert!(listed.iter().all(|agent| agent.id != agent_b), "tenant A must not see tenant B's agent");
 
         let update = update_agent_status(
