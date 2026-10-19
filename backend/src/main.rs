@@ -457,4 +457,56 @@ mod tests {
         assert!(merchant_list(&json!({"merchant": "OpenAI"})).is_empty());
         assert!(merchant_list(&json!(null)).is_empty());
     }
+
+    // Exercise the actual handler queries against the disposable MySQL database
+    // provisioned by CI. This complements the migration-level composite-FK test.
+    #[tokio::test]
+    async fn agent_reads_and_updates_are_workspace_scoped() {
+        let url = env::var("DATABASE_URL")
+            .expect("DATABASE_URL must point to a disposable MySQL test database");
+        let db = MySqlPoolOptions::new()
+            .max_connections(5)
+            .connect(&url)
+            .await
+            .expect("connect to test MySQL");
+        sqlx::migrate!("./migrations").run(&db).await.expect("apply migrations");
+
+        let workspace_a = Uuid::new_v4().to_string();
+        let workspace_b = Uuid::new_v4().to_string();
+        let agent_b = Uuid::new_v4().to_string();
+        for (id, name) in [(&workspace_a, "API isolation A"), (&workspace_b, "API isolation B")] {
+            sqlx::query("INSERT INTO workspaces (id, name) VALUES (?, ?)")
+                .bind(id).bind(name).execute(&db).await.expect("create workspace");
+        }
+        sqlx::query("INSERT INTO agents (id, workspace_id, name, owner, did, network) VALUES (?, ?, 'Tenant B agent', 'Test owner', ?, 'Base Sepolia')")
+            .bind(&agent_b).bind(&workspace_b).bind(format!("did:oncredsync:{agent_b}"))
+            .execute(&db).await.expect("create tenant B agent");
+
+        let claims = auth::Claims {
+            sub: Uuid::new_v4().to_string(),
+            email: "test@example.invalid".to_string(),
+            role: "workspace_admin".to_string(),
+            workspace_id: Some(workspace_a.clone()),
+            exp: usize::MAX,
+        };
+        let listed = list_agents(State(AppState { db: db.clone() }), Extension(claims.clone()))
+            .await.expect("list agents for tenant A").0;
+        assert!(listed.iter().all(|agent| agent.id != agent_b), "tenant A must not see tenant B's agent");
+
+        let update = update_agent_status(
+            State(AppState { db: db.clone() }),
+            Path(agent_b.clone()),
+            Extension(claims),
+            Json(UpdateAgentStatus { status: "paused".to_string() }),
+        ).await;
+        assert!(matches!(update, Err((StatusCode::NOT_FOUND, _))), "cross-tenant update must return not found");
+        let status: (String,) = sqlx::query_as("SELECT status FROM agents WHERE id = ?")
+            .bind(&agent_b).fetch_one(&db).await.expect("read agent status");
+        assert_eq!(status.0, "active", "cross-tenant update must not modify the agent");
+
+        sqlx::query("DELETE FROM agents WHERE id = ? AND workspace_id = ?")
+            .bind(&agent_b).bind(&workspace_b).execute(&db).await.expect("remove test agent");
+        sqlx::query("DELETE FROM workspaces WHERE id IN (?, ?)")
+            .bind(&workspace_a).bind(&workspace_b).execute(&db).await.expect("remove test workspaces");
+    }
 }
