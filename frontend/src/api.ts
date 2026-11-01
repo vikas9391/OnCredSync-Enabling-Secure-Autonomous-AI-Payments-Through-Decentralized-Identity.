@@ -19,11 +19,29 @@ export interface ApiPayment {
   amount_wei: string; status: "settled" | "pending" | "rejected";
   rejection_reason: string | null; protocol: string; tx_hash: string | null; created_at: string;
 }
+const TOKEN_KEY = "oncredsync_token";
+
+function getToken(): string | null {
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+export function clearAuthSession(): void {
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch { /* storage may be disabled */ }
+}
+
+export function saveAuthSession(token: string): void {
+  try { sessionStorage.setItem(TOKEN_KEY, token); } catch {
+    throw new Error("Your browser blocked session storage. Enable site storage and try again.");
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(sessionStorage.getItem("oncredsync_token") ? { Authorization: `Bearer ${sessionStorage.getItem("oncredsync_token")}` } : {}), ...(init?.headers ?? {}) },
-  });
+  const token = getToken();
+  const headers = new Headers(init?.headers);
+  if (init?.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  if (response.status === 401 && path !== "/api/v1/auth/login") clearAuthSession();
   if (!response.ok) {
     const body = await response.json().catch(() => ({ error: response.statusText }));
     throw new Error(body.error ?? `API request failed (${response.status})`);
@@ -51,6 +69,7 @@ export interface AuthUser { id: string; full_name: string; email: string; role: 
 export interface ApiWorkspace { id: string; name: string; created_at: string; }
 export const authApi = {
   login: (email: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  register: (body: { full_name: string; email: string; password: string; workspace_name: string }) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<AuthUser>("/api/v1/auth/me"),
   updateProfile: (full_name: string) => request<AuthUser>("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ full_name }) }),
   users: () => request<AuthUser[]>("/api/v1/auth/users"),

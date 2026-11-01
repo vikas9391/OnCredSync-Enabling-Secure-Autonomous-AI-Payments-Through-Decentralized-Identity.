@@ -4,8 +4,8 @@
 OnCredSync is a prototype for AI-agent identity references, programmable spending policies, and auditable payment decisions.
 
 ## Repository layout
-- `frontend/` — React, TypeScript, and Vite dashboard.
-- `backend/` — Rust, Axum, SQLx, and MySQL API.
+- `frontend/` — React, TypeScript, and Vite dashboard connected to the authenticated Rust API.
+- `backend/` — Rust, Axum, SQLx, and MySQL API with JWT authentication and workspace-scoped authorization.
 - `backend/migrations/` — SQL schema migrations applied at backend startup.
 - `.github/workflows/ci.yml` — frontend build and backend compile checks.
 
