@@ -316,7 +316,7 @@ pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(),
     if password.len() < 12 || password.len() > 72 { return Err("BOOTSTRAP_ADMIN_PASSWORD must be 12–72 bytes for bcrypt".into()); }
     let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?").bind(&email).fetch_optional(pool).await?;
     if existing.is_none() {
-        let password_hash = hash(password, DEFAULT_COST)?;
+        let password_hash = hash(&password, DEFAULT_COST)?;
         sqlx::query("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, 'super_admin')")
             .bind(Uuid::new_v4().to_string()).bind(name.trim()).bind(email).bind(password_hash).execute(pool).await?;
         tracing::info!("Bootstrap Super Admin account created from environment configuration.");
