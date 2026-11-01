@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { authApi, type AuthUser, type ApiWorkspace, type UserRole } from "./api";
+import { authApi, clearAuthSession, saveAuthSession, type AuthUser, type ApiWorkspace, type UserRole } from "./api";
 import App from "./App";
 import LandingPage from "./LandingPage";
 import { ShieldCheck, LockKeyhole, LogOut, UserRound, Users, X, Save, Plus, RefreshCw } from "lucide-react";
@@ -34,20 +34,24 @@ export default function AuthGate() {
   const [notice, setNotice] = useState("");
 
   useEffect(() => {
-    if (!sessionStorage.getItem("oncredsync_token")) { setLoading(false); return; }
-    authApi.me().then(u => { setUser(u); setFullName(u.full_name); }).catch(() => sessionStorage.removeItem("oncredsync_token")).finally(() => setLoading(false));
+    let token: string | null = null;
+    try { token = sessionStorage.getItem("oncredsync_token"); } catch { token = null; }
+    if (!token) { setLoading(false); return; }
+    authApi.me().then(u => { setUser(u); setFullName(u.full_name); })
+      .catch(() => clearAuthSession())
+      .finally(() => setLoading(false));
   }, []);
 
   const signIn = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setError("");
     try {
       const result = await authApi.login(email, password);
-      sessionStorage.setItem("oncredsync_token", result.access_token);
+      saveAuthSession(result.access_token);
       setUser(result.user); setFullName(result.user.full_name); setPassword("");
     } catch (e) { setError(e instanceof Error ? e.message : "Unable to sign in."); }
     finally { setBusy(false); }
   };
-  const signOut = () => { sessionStorage.removeItem("oncredsync_token"); setUser(null); setPanel(null); setPassword(""); };
+  const signOut = () => { clearAuthSession(); setUser(null); setPanel(null); setPassword(""); };
   const openUsers = async () => {
     setPanel("users"); setNotice("");
     try {
