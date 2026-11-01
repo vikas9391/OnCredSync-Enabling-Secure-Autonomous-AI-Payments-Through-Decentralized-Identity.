@@ -69,6 +69,7 @@ export interface AuthUser { id: string; full_name: string; email: string; role: 
 export interface ApiWorkspace { id: string; name: string; created_at: string; }
 export const authApi = {
   login: (email: string, password: string) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+  register: (body: { full_name: string; email: string; password: string; workspace_name: string }) => request<{ access_token: string; token_type: string; expires_in: number; user: AuthUser }>("/api/v1/auth/register", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<AuthUser>("/api/v1/auth/me"),
   updateProfile: (full_name: string) => request<AuthUser>("/api/v1/auth/profile", { method: "PATCH", body: JSON.stringify({ full_name }) }),
   users: () => request<AuthUser[]>("/api/v1/auth/users"),
