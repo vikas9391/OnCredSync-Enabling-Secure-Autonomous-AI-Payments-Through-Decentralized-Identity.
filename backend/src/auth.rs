@@ -54,6 +54,9 @@ struct AuthResponse {
 struct LoginInput { email: String, password: String }
 
 #[derive(Debug, Deserialize)]
+struct RegisterInput { full_name: String, email: String, password: String, workspace_name: String }
+
+#[derive(Debug, Deserialize)]
 struct CreateUserInput { full_name: String, email: String, password: String, role: String, workspace_id: Option<String> }
 
 #[derive(Debug, Deserialize)]
@@ -88,6 +91,7 @@ fn token(claims: Claims, secret: &str) -> Result<String, jsonwebtoken::errors::E
 pub fn router(state: AuthState) -> Router {
     let public = Router::new()
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/register", post(register))
         .with_state(state.clone());
 
     let protected = Router::new()
@@ -100,6 +104,62 @@ pub fn router(state: AuthState) -> Router {
         .with_state(state);
 
     public.merge(protected)
+}
+
+async fn register(State(state): State<AuthState>, Json(input): Json<RegisterInput>) -> AuthResult<AuthResponse> {
+    let name = input.full_name.trim();
+    let email = input.email.trim().to_lowercase();
+    let workspace_name = input.workspace_name.trim();
+    if name.is_empty() || name.len() > 120 || !email.contains('@') || email.len() > 254
+        || workspace_name.is_empty() || workspace_name.len() > 120
+        || input.password.len() < 12 || input.password.len() > 72 {
+        return Err(err(StatusCode::BAD_REQUEST, "Enter a valid name, email and workspace; password must be 12–72 bytes."));
+    }
+    let password_hash = hash(&input.password, DEFAULT_COST)
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Could not secure the password."))?;
+    let user_id = Uuid::new_v4().to_string();
+    let workspace_id = Uuid::new_v4().to_string();
+    let mut tx = state.db.begin().await
+        .map_err(|e| { tracing::error!(error=%e, "registration transaction failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Registration is temporarily unavailable.") })?;
+
+    sqlx::query("INSERT INTO workspaces (id, name) VALUES (?, ?)")
+        .bind(&workspace_id).bind(workspace_name).execute(&mut *tx).await
+        .map_err(|e| { tracing::error!(error=%e, "registration workspace insert failed"); err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create workspace.") })?;
+
+    sqlx::query("INSERT INTO users (id, workspace_id, full_name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, 'workspace_admin', 'active')")
+        .bind(&user_id).bind(&workspace_id).bind(name).bind(&email).bind(password_hash)
+        .execute(&mut *tx).await.map_err(|e| {
+            if e.to_string().contains("Duplicate") {
+                err(StatusCode::CONFLICT, "An account with that email already exists.")
+            } else {
+                tracing::error!(error=%e, "registration user insert failed");
+                err(StatusCode::INTERNAL_SERVER_ERROR, "Could not create account.")
+            }
+        })?;
+
+    sqlx::query("INSERT INTO audit_events (id, workspace_id, event_type, resource_type, resource_id, details) VALUES (?, ?, 'user.registered', 'user', ?, ?)")
+        .bind(Uuid::new_v4().to_string()).bind(&workspace_id).bind(&user_id)
+        .bind(json!({"email": email, "role": "workspace_admin"}))
+        .execute(&mut *tx).await.map_err(|e| {
+            tracing::error!(error=%e, "registration audit insert failed");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "Could not complete account registration.")
+        })?;
+
+    tx.commit().await.map_err(|e| {
+        tracing::error!(error=%e, "registration commit failed");
+        err(StatusCode::INTERNAL_SERVER_ERROR, "Could not complete account registration.")
+    })?;
+
+    let expires = Utc::now() + Duration::hours(8);
+    let claims = Claims { sub: user_id.clone(), email: email.clone(), role: "workspace_admin".into(), workspace_id: Some(workspace_id.clone()), exp: expires.timestamp() as usize };
+    let access_token = token(claims, &state.jwt_secret)
+        .map_err(|_| err(StatusCode::INTERNAL_SERVER_ERROR, "Account created but could not create session. Please sign in."))?;
+    let user = sqlx::query_as::<_, User>("SELECT id, full_name, email, role, status, workspace_id, created_at FROM users WHERE id = ?")
+        .bind(&user_id).fetch_one(&state.db).await.map_err(|e| {
+            tracing::error!(error=%e, "registered user lookup failed");
+            err(StatusCode::INTERNAL_SERVER_ERROR, "Account created but could not load profile. Please sign in.")
+        })?;
+    Ok(Json(AuthResponse { access_token, token_type: "Bearer", expires_in: 8 * 60 * 60, user }))
 }
 
 async fn login(State(state): State<AuthState>, Json(input): Json<LoginInput>) -> AuthResult<AuthResponse> {
@@ -309,26 +369,29 @@ async fn create_workspace(State(state): State<AuthState>, Extension(claims): Ext
     Ok(Json(workspace))
 }
 
+// Local-only convenience account for `cargo run`. It is excluded from release builds.
+#[cfg(debug_assertions)]
 pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let email = match env::var("BOOTSTRAP_ADMIN_EMAIL") {
-        Ok(v) => v.trim().to_lowercase(),
-        Err(_) => { tracing::warn!("Bootstrap Super Admin is not configured: BOOTSTRAP_ADMIN_EMAIL is missing."); return Ok(()); }
-    };
-    let password = match env::var("BOOTSTRAP_ADMIN_PASSWORD") {
-        Ok(v) => v,
-        Err(_) => { tracing::warn!("Bootstrap Super Admin is not configured: BOOTSTRAP_ADMIN_PASSWORD is missing."); return Ok(()); }
-    };
-    let name = env::var("BOOTSTRAP_ADMIN_NAME").unwrap_or_else(|_| "Platform Administrator".into());
-    if password.len() < 12 || password.len() > 72 { return Err("BOOTSTRAP_ADMIN_PASSWORD must be 12–72 bytes for bcrypt".into()); }
-    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?").bind(&email).fetch_optional(pool).await?;
+    const DEMO_ADMIN_EMAIL: &str = "admin@oncredsync.local";
+    const DEMO_ADMIN_PASSWORD: &str = "OnCredSync-Local-Admin-2026!";
+    const DEMO_ADMIN_NAME: &str = "OnCredSync Super Admin";
+
+    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?")
+        .bind(DEMO_ADMIN_EMAIL).fetch_optional(pool).await?;
     if existing.is_none() {
-        let password_hash = hash(&password, DEFAULT_COST)?;
-        sqlx::query("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, 'super_admin')")
-            .bind(Uuid::new_v4().to_string()).bind(name.trim()).bind(email).bind(password_hash).execute(pool).await?;
-        tracing::info!(admin_email = %email, "Bootstrap Super Admin account created from environment configuration.");
+        let password_hash = hash(DEMO_ADMIN_PASSWORD, DEFAULT_COST)?;
+        sqlx::query("INSERT INTO users (id, full_name, email, password_hash, role, status) VALUES (?, ?, ?, ?, 'super_admin', 'active')")
+            .bind(Uuid::new_v4().to_string()).bind(DEMO_ADMIN_NAME).bind(DEMO_ADMIN_EMAIL).bind(password_hash)
+            .execute(pool).await?;
+        tracing::warn!(admin_email = DEMO_ADMIN_EMAIL, "Created LOCAL DEVELOPMENT Super Admin. Change/remove this demo account before exposing the server.");
     } else {
-        tracing::info!(admin_email = %email, "Bootstrap Super Admin account already exists; its password is not reset by startup configuration.");
+        tracing::info!(admin_email = DEMO_ADMIN_EMAIL, "Local development Super Admin already exists; its password is not reset.");
     }
     let _ = secret;
+    Ok(())
+}
+
+#[cfg(not(debug_assertions))]
+pub async fn bootstrap_super_admin(_pool: &MySqlPool, _secret: &str) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
