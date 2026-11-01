@@ -33,7 +33,7 @@ Copy-Item .env.example .env
 notepad .env
 ```
 
-Set `DATABASE_URL` to the local MySQL connection, `HOST=127.0.0.1`, `PORT=8080`, and `FRONTEND_ORIGIN=http://localhost:5173`. Set a fresh random `JWT_SECRET` of at least 32 characters. Set `BOOTSTRAP_ADMIN_EMAIL` and a unique `BOOTSTRAP_ADMIN_PASSWORD` (12–72 bytes). URL-encode reserved characters in the MySQL password (for example `@` as `%40`, `/` as `%2F`, `#` as `%23`).
+Set `DATABASE_URL` to the local MySQL connection, `HOST=127.0.0.1`, `PORT=8080`, and `FRONTEND_ORIGIN=http://localhost:5173`. Set a fresh random `JWT_SECRET` of at least 32 characters. URL-encode reserved characters in the MySQL password (for example `@` as `%40`, `/` as `%2F`, `#` as `%23`).
 
 Generate a fresh JWT secret in PowerShell:
 
@@ -44,7 +44,7 @@ $jwt = [Convert]::ToBase64String($bytes)
 $jwt
 ```
 
-Do not commit `.env`. SQLx migrations are applied automatically when the backend starts. Back up existing data before migration. If the bootstrap email already exists, startup does not replace its password; use that account's existing password. Remove `BOOTSTRAP_ADMIN_PASSWORD` from `.env` after first successful setup/login.
+Do not commit `.env`. SQLx migrations are applied automatically when the backend starts. Back up existing data before migration. In local debug builds (`cargo run`), the backend creates a demo Super Admin if it does not already exist. The demo account is disabled in release builds.
 
 ### 3. Start backend
 
@@ -73,18 +73,18 @@ Open `http://localhost:5173`. The default API URL is `http://127.0.0.1:8080`; ov
 
 ## Authentication
 
-- `POST /api/v1/auth/login`: email/password to JWT.
+- `POST /api/v1/auth/login`: email/password to JWT.\n- `POST /api/v1/auth/register`: creates a workspace and Workspace Admin account, then returns a JWT.
 - `GET /api/v1/auth/me`: current user, requires Bearer token.
 - `PATCH /api/v1/auth/profile`: update profile.
 - `GET/POST /api/v1/auth/users`: list/provision accounts (admin only).
 - `PATCH /api/v1/auth/users/:id`: update role/status (admin only).
 - `GET/POST /api/v1/auth/workspaces`: workspace listing/creation.
 
-There is no public registration. Sign in with the bootstrap Super Admin, create a workspace, then provision a Workspace Admin or other workspace account. Super Admin has no tenant workspace and cannot browse tenant business records directly.
+Public registration creates a new workspace and its first Workspace Admin; the account is stored in MySQL and signed in automatically. For local development only, `cargo run` creates `admin@oncredsync.local` with password `OnCredSync-Local-Admin-2026!` if that account does not exist. This fixed demo credential is compiled only into debug builds; never expose a debug server publicly or deploy it. Super Admin has no tenant workspace and cannot browse tenant business records directly.
 
 ## Troubleshooting
 
-- **401 at login:** verify email/password and confirm the configured bootstrap email was not already in `users` with a different password. Bootstrap does not reset existing accounts.
+- **401 at login:** verify email/password and check that the account exists and is active in `users`. The local demo Super Admin is only created in debug builds and is not reset if it already exists.
 - **500 at login:** inspect backend logs; verify migrations completed and MySQL user privileges are sufficient.
 - **CORS error:** `FRONTEND_ORIGIN` must exactly match browser origin; `localhost` and `127.0.0.1` are different origins.
 - **Network error:** make sure backend is listening on `127.0.0.1:8080`, frontend API URL matches, and both processes remain running.
