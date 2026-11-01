@@ -152,3 +152,23 @@
 .platform-home h1{margin:12px 0;font-size:clamp(25px,4vw,38px);letter-spacing:-1px;color:#20243b}
 .platform-home p{max-width:650px;color:#737b91;font-size:14px;line-height:1.8;margin:0 0 24px}
 .platform-home .auth-submit{display:inline-flex;align-items:center;justify-content:center;gap:9px;width:auto;padding:12px 17px;border:0;border-radius:10px;background:#6354d9;color:white;cursor:pointer}
+
+
+/* Super Admin dashboard — full light theme */
+.platform-dashboard{background:#f8fafc;color:#172033;max-width:none;min-height:calc(100vh - 68px);padding:42px max(24px,calc((100vw - 1240px)/2)) 64px}
+.platform-dashboard-heading h1,.platform-users-heading h2{color:#172033}
+.platform-dashboard-heading p,.platform-users-heading p,.platform-stat-card span,.platform-stat-card small,.platform-table-foot,.platform-security-note{color:#64748b}
+.platform-stat-card,.platform-users-card{background:#fff;border-color:#e2e8f0;box-shadow:0 4px 18px rgba(15,23,42,.035)}
+.platform-stat-card strong{color:#172033}
+.platform-users-table th{background:#f8fafc;color:#64748b}
+.platform-users-table td{color:#334155;border-top-color:#edf2f7}
+.platform-users-table td small{color:#64748b}
+.platform-users-toolbar input{background:#fff;color:#172033;border-color:#dbe3ee}
+.platform-users-toolbar input::placeholder{color:#94a3b8}
+.platform-users-toolbar span{color:#64748b}
+.platform-dashboard .auth-notice{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe}
+.platform-dashboard .auth-submit{background:#2563eb;border-color:#2563eb;color:#fff}
+.platform-dashboard .auth-submit:hover{background:#1d4ed8}
+.platform-dashboard .auth-icon-button{background:#fff;color:#475569;border:1px solid #e2e8f0}
+.platform-dashboard .auth-icon-button:hover{background:#f1f5f9;color:#1d4ed8}
+.platform-security-note svg{color:#2563eb}
