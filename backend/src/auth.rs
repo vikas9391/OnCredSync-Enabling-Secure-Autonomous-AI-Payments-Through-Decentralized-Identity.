@@ -310,8 +310,14 @@ async fn create_workspace(State(state): State<AuthState>, Extension(claims): Ext
 }
 
 pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let email = match env::var("BOOTSTRAP_ADMIN_EMAIL") { Ok(v) => v.trim().to_lowercase(), Err(_) => return Ok(()) };
-    let password = match env::var("BOOTSTRAP_ADMIN_PASSWORD") { Ok(v) => v, Err(_) => return Ok(()) };
+    let email = match env::var("BOOTSTRAP_ADMIN_EMAIL") {
+        Ok(v) => v.trim().to_lowercase(),
+        Err(_) => { tracing::warn!("Bootstrap Super Admin is not configured: BOOTSTRAP_ADMIN_EMAIL is missing."); return Ok(()); }
+    };
+    let password = match env::var("BOOTSTRAP_ADMIN_PASSWORD") {
+        Ok(v) => v,
+        Err(_) => { tracing::warn!("Bootstrap Super Admin is not configured: BOOTSTRAP_ADMIN_PASSWORD is missing."); return Ok(()); }
+    };
     let name = env::var("BOOTSTRAP_ADMIN_NAME").unwrap_or_else(|_| "Platform Administrator".into());
     if password.len() < 12 || password.len() > 72 { return Err("BOOTSTRAP_ADMIN_PASSWORD must be 12–72 bytes for bcrypt".into()); }
     let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM users WHERE email = ?").bind(&email).fetch_optional(pool).await?;
@@ -319,7 +325,9 @@ pub async fn bootstrap_super_admin(pool: &MySqlPool, secret: &str) -> Result<(),
         let password_hash = hash(&password, DEFAULT_COST)?;
         sqlx::query("INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, 'super_admin')")
             .bind(Uuid::new_v4().to_string()).bind(name.trim()).bind(email).bind(password_hash).execute(pool).await?;
-        tracing::info!("Bootstrap Super Admin account created from environment configuration.");
+        tracing::info!(admin_email = %email, "Bootstrap Super Admin account created from environment configuration.");
+    } else {
+        tracing::info!(admin_email = %email, "Bootstrap Super Admin account already exists; its password is not reset by startup configuration.");
     }
     let _ = secret;
     Ok(())
