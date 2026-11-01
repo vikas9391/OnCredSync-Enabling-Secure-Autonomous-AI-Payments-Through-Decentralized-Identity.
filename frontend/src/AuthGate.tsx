@@ -85,6 +85,14 @@ export default function AuthGate() {
     finally { setBusy(false); }
   };
   const signOut = () => { clearAuthSession(); setUser(null); setPanel(null); setPassword(""); };
+  const refreshPlatform = async () => {
+    setPlatformLoading(true);
+    try {
+      const [nextUsers, nextWorkspaces] = await Promise.all([authApi.users(), authApi.workspaces()]);
+      setUsers(nextUsers); setWorkspaces(nextWorkspaces); setNotice("");
+    } catch (e) { setNotice(e instanceof Error ? e.message : "Could not refresh platform data."); }
+    finally { setPlatformLoading(false); }
+  };
   const openUsers = async () => {
     setPanel("users"); setNotice("");
     try {
@@ -135,7 +143,7 @@ export default function AuthGate() {
       <article className="platform-stat-card"><span>Workspaces</span><strong>{workspaces.length}</strong><small>Isolated tenant spaces</small></article>
     </div>
     <section className="platform-users-card">
-      <div className="platform-users-heading"><div><h2>Platform users</h2><p>Review user identities, roles, workspace membership, and access status.</p></div><button className="auth-icon-button" title="Refresh platform data" onClick={openUsers}><RefreshCw size={17}/></button></div>
+      <div className="platform-users-heading"><div><h2>Platform users</h2><p>Review user identities, roles, workspace membership, and access status.</p></div><button className="auth-icon-button" title="Refresh platform data" onClick={refreshPlatform} disabled={platformLoading}><RefreshCw size={17}/></button></div>
       <div className="platform-users-toolbar"><input aria-label="Search platform users" placeholder="Search name, email, role, or workspace…" value={userSearch} onChange={e => setUserSearch(e.target.value)}/><span>{platformLoading ? "Refreshing…" : users.length + " accounts"}</span></div>
       <div className="platform-users-table-wrap"><table className="platform-users-table"><thead><tr><th>User</th><th>Role</th><th>Workspace</th><th>Status</th><th>Joined</th></tr></thead><tbody>
         {users.filter(u => { const q=userSearch.trim().toLowerCase(); const workspace=workspaces.find(w=>w.id===u.workspace_id)?.name ?? "Platform"; return !q || [u.full_name,u.email,u.role,workspace,u.status].some(v=>v.toLowerCase().includes(q)); }).slice(0,12).map(u => <tr key={u.id}><td><strong>{u.full_name}</strong><small>{u.email}</small></td><td>{roles.find(r=>r.value===u.role)?.label ?? u.role}</td><td>{workspaces.find(w=>w.id===u.workspace_id)?.name ?? (u.role==="super_admin" ? "Platform" : "—")}</td><td><span className={"platform-status "+(u.status==="active" ? "is-active" : "is-disabled")}>{u.status}</span></td><td>{new Date(u.created_at).toLocaleDateString()}</td></tr>)}
