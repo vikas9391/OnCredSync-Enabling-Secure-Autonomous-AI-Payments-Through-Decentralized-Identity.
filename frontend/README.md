@@ -1,35 +1,25 @@
 # OnCredSync Frontend
 
-A React + TypeScript + Vite interface prototype for OnCredSync, an AI-agent identity and autonomous-payment policy dashboard.
+React + TypeScript + Vite client for the OnCredSync Rust API.
 
-## Run locally
+## Run locally (Windows PowerShell)
 
-Requirements: Node.js 20+ and npm.
-
-```bash
+```powershell
 cd frontend
-npm install
+Copy-Item .env.example .env.local
+npm ci
 npm run dev
 ```
 
-Open the local URL printed by Vite (typically http://localhost:5173).
+Open `http://localhost:5173`. The API defaults to `http://127.0.0.1:8080`; change `VITE_API_BASE_URL` in `.env.local` if needed and restart Vite.
 
-## Production build
+## Build
 
-```bash
+```powershell
 npm run build
 npm run preview
 ```
 
-## Current prototype features
+Authentication is backed by the Rust API. There is no public sign-up: the bootstrap Super Admin provisions workspace accounts. The access token is held in session storage and attached as a Bearer token. A 401 response clears the local session so the user can sign in again.
 
-- Responsive command-center dashboard and spend charts.
-- Agent listing, registration, pause/resume and local revocation states.
-- Spending policy overview and interactive payment-policy simulator.
-- Payment history with search and status filtering.
-- Demo identity registry and activity timeline.
-- Workspace settings and integration status.
-
-## Important scope notes
-
-This is a **frontend-only prototype**. Data is held in React state and resets on refresh. Agent identifiers, transaction hashes, status values and chart data are illustrative. It does not connect to a Rust backend, PostgreSQL, deployed contracts, a DID resolver, wallet signer, or x402 facilitator. The simulator is client-side demonstration logic only and must not be treated as real payment authorization. Backend and smart-contract validation must become authoritative before any real funds are used.
+All payment activity is simulated; no wallet signatures or real ETH transfers are performed.
